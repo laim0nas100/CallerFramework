@@ -1,8 +1,8 @@
 package lt.lb.caller;
 
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.function.Supplier;
+import java.util.concurrent.Callable;
+import lt.lb.caller.util.CheckedFunction;
 
 /**
  * @{code while} loop caller builder
@@ -12,9 +12,9 @@ import java.util.function.Supplier;
  */
 public class CallerWhileBuilder<T> {
 
-    protected Supplier<Boolean> condition;
-    protected Supplier<Caller<T>> contFunction;
-    protected Function<T, CallerFlowControl<T>> thenFunction;
+    protected Callable<Boolean> condition;
+    protected Callable<Caller<T>> contFunction;
+    protected CheckedFunction<T, CallerFlowControl<T>> thenFunction;
     protected Caller<T> afterwards;
     protected boolean dowhile = false;
 
@@ -35,7 +35,7 @@ public class CallerWhileBuilder<T> {
      * @param condition {@code while} loop condition
      * @return builder
      */
-    public CallerWhileBuilder<T> whilst(Supplier<Boolean> condition) {
+    public CallerWhileBuilder<T> whilst(Callable<Boolean> condition) {
         this.condition = condition;
         return this;
     }
@@ -63,7 +63,7 @@ public class CallerWhileBuilder<T> {
      * middle of a {@code while} loop
      * @return builder
      */
-    public CallerWhileBuilder<T> evaluate(Function<T, CallerFlowControl<T>> thenFunction) {
+    public CallerWhileBuilder<T> evaluate(CheckedFunction<T, CallerFlowControl<T>> thenFunction) {
         this.thenFunction = thenFunction;
         return this;
     }
@@ -74,7 +74,7 @@ public class CallerWhileBuilder<T> {
      * @param contFunction
      * @return
      */
-    public CallerWhileBuilder<T> forEachCall(Supplier<Caller<T>> contFunction) {
+    public CallerWhileBuilder<T> forEachCall(Callable<Caller<T>> contFunction) {
         this.contFunction = contFunction;
         return this;
     }

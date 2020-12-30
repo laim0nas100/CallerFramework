@@ -3,6 +3,7 @@ package lt.lb.caller;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
@@ -11,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lt.lb.caller.util.CastList;
+import lt.lb.caller.util.CheckedFunction;
 import lt.lb.fastid.FastID;
 import lt.lb.fastid.FastIDGen;
 
@@ -180,7 +182,7 @@ public class Caller<T> {
      * @param call
      * @return Caller, with recursive tail call
      */
-    public static <T> Caller<T> ofFunction(Function<CastList<T>, Caller<T>> call) {
+    public static <T> Caller<T> ofFunction(CheckedFunction<CastList<T>, Caller<T>> call) {
         Objects.requireNonNull(call);
         return new Caller<>(CallerType.FUNCTION, null, call, emptyList);
     }
@@ -192,9 +194,9 @@ public class Caller<T> {
      * @param call
      * @return Caller, with recursive tail call
      */
-    public static <T> Caller<T> ofSupplier(Supplier<Caller<T>> call) {
+    public static <T> Caller<T> ofCallable(Callable<Caller<T>> call) {
         Objects.requireNonNull(call);
-        return ofFunction(args -> call.get());
+        return ofFunction(args -> call.call());
     }
 
     /**
@@ -204,9 +206,9 @@ public class Caller<T> {
      * @param call
      * @return Caller that ends up as a result
      */
-    public static <T> Caller<T> ofSupplierResult(Supplier<T> call) {
+    public static <T> Caller<T> ofCallableResult(Callable<T> call) {
         Objects.requireNonNull(call);
-        return ofFunction(args -> ofResult(call.get()));
+        return ofFunction(args -> ofResult(call.call()));
     }
 
     /**
@@ -216,7 +218,7 @@ public class Caller<T> {
      * @param call
      * @return Caller that ends up as a result
      */
-    public static <T> Caller<T> ofResultCall(Function<CastList<T>, T> call) {
+    public static <T> Caller<T> ofResultCall(CheckedFunction<CastList<T>, T> call) {
         Objects.requireNonNull(call);
         return ofFunction(args -> ofResult(call.apply(args)));
     }
@@ -226,7 +228,7 @@ public class Caller<T> {
      *
      * @param nextCall
      */
-    Caller(CallerType type, T result, Function<CastList<T>, Caller<T>> nextCall, List<Caller<T>> dependencies) {
+    Caller(CallerType type, T result, CheckedFunction<CastList<T>, Caller<T>> nextCall, List<Caller<T>> dependencies) {
         this.type = type;
         this.value = result;
         this.call = nextCall;

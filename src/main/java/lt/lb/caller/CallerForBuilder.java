@@ -19,8 +19,8 @@ public class CallerForBuilder<R, T> {
 
     protected boolean bulk = false;
     protected IndexedIterator<R> iter;
-    protected BiFunction<Integer, R, Caller<T>> contFunction;
-    protected BiFunction<Integer, T, CallerFlowControl<T>> thenFunction;
+    protected CheckedBiFunction<Integer, R, Caller<T>> contFunction;
+    protected CheckedBiFunction<Integer, T, CallerFlowControl<T>> thenFunction;
     protected Caller<T> afterwards;
 
     public CallerForBuilder() {
@@ -100,7 +100,7 @@ public class CallerForBuilder<R, T> {
      * middle of a {@code for} loop
      * @return builder
      */
-    public CallerForBuilder<R, T> evaluate(Function<T, CallerFlowControl<T>> thenFunction) {
+    public CallerForBuilder<R, T> evaluate(CheckedFunction<T, CallerFlowControl<T>> thenFunction) {
         Objects.requireNonNull(thenFunction);
         return evaluate((i, item) -> thenFunction.apply(item));
     }
@@ -112,20 +112,9 @@ public class CallerForBuilder<R, T> {
      * middle of a {@code for} loop
      * @return builder
      */
-    public CallerForBuilder<R, T> evaluate(BiFunction<Integer, T, CallerFlowControl<T>> thenFunction) {
+    public CallerForBuilder<R, T> evaluate(CheckedBiFunction<Integer, T, CallerFlowControl<T>> thenFunction) {
         this.thenFunction = thenFunction;
         return this;
-    }
-
-    /**
-     * Create recursive calls for each item in iterator.
-     *
-     * @param contFunction
-     * @return
-     */
-    public CallerForBuilder<R, T> forEachCall(Function<R, Caller<T>> contFunction) {
-        Objects.requireNonNull(contFunction);
-        return this.forEachCall((i, item) -> contFunction.apply(item));
     }
 
     /**
@@ -138,17 +127,6 @@ public class CallerForBuilder<R, T> {
     public CallerForBuilder<R, T> forEachCall(CheckedFunction<R, Caller<T>> contFunction) {
         Objects.requireNonNull(contFunction);
         return this.forEachCall((i, item) -> contFunction.apply(item));
-    }
-
-    /**
-     * Create recursive calls for each (index,item) pair in iterator.
-     *
-     * @param contFunction
-     * @return
-     */
-    public CallerForBuilder<R, T> forEachCall(BiFunction<Integer, R, Caller<T>> contFunction) {
-        this.contFunction = contFunction;
-        return this;
     }
 
     /**

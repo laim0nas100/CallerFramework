@@ -5,8 +5,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -15,12 +15,12 @@ import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import lt.lb.caller.Caller.CallerType;
 import lt.lb.caller.CallerFlowControl.CallerForType;
 import lt.lb.caller.util.CastList;
+import lt.lb.caller.util.CheckedBiFunction;
 import lt.lb.caller.util.CheckedException;
+import lt.lb.caller.util.CheckedFunction;
 import lt.lb.caller.util.IndexedIterator;
 import lt.lb.caller.util.IndexedIterator.IndexedValue;
 import lt.lb.caller.util.sync.CompleablePromise;
@@ -116,9 +116,9 @@ public class CallerImpl {
      * middle of it and how
      * @return
      */
-    public static <T, R> Caller<T> ofIteratorLazy(Caller<T> emptyCase, IndexedIterator<R> iterator, BiFunction<Integer, R, Caller<T>> func, BiFunction<Integer, T, CallerFlowControl<T>> contFunc) {
+    public static <T, R> Caller<T> ofIteratorLazy(Caller<T> emptyCase, IndexedIterator<R> iterator, CheckedBiFunction<Integer, R, Caller<T>> func, CheckedBiFunction<Integer, T, CallerFlowControl<T>> contFunc) {
 
-        return ofWhileLoopSwitch(
+        return ofWhileLoop(
                 emptyCase,
                 iterator::hasNext,
                 () -> {
@@ -150,7 +150,7 @@ public class CallerImpl {
      * middle of it and how
      * @return
      */
-    public static <T, R> Caller<T> ofIteratorLazyBulk(Caller<T> emptyCase, IndexedIterator<R> iterator, BiFunction<Integer, R, Caller<T>> func, BiFunction<Integer, T, CallerFlowControl<T>> contFunc) {
+    public static <T, R> Caller<T> ofIteratorLazyBulk(Caller<T> emptyCase, IndexedIterator<R> iterator, BiFunction<Integer, R, Caller<T>> func, CheckedBiFunction<Integer, T, CallerFlowControl<T>> contFunc) {
 
         CallerBuilder<T> b = new CallerBuilder<>();
 
@@ -193,14 +193,14 @@ public class CallerImpl {
      * @param contFunc how to continue with recursive call result
      * @return
      */
-    public static <T> Caller<T> ofDoWhileLoop(Caller<T> emptyCase, Supplier<Boolean> condition, Supplier<Caller<T>> func, Function<T, CallerFlowControl<T>> contFunc) {
+    public static <T> Caller<T> ofDoWhileLoop(Caller<T> emptyCase, Callable<Boolean> condition, Callable<Caller<T>> func, CheckedFunction<T, CallerFlowControl<T>> contFunc) {
         return new CallerBuilder<T>(1)
                 .withDependencySupp(func)
                 .toCall(args -> flowControlSwitch(contFunc.apply(args._0), emptyCase, condition, func, contFunc));
 
     }
 
-    private static <T> Caller<T> flowControlSwitch(CallerFlowControl<T> apply, Caller<T> emptyCase, Supplier<Boolean> condition, Supplier<Caller<T>> func, Function<T, CallerFlowControl<T>> contFunc) {
+    private static <T> Caller<T> flowControlSwitch(CallerFlowControl<T> apply, Caller<T> emptyCase, Callable<Boolean> condition, Callable<Caller<T>> func, CheckedFunction<T, CallerFlowControl<T>> contFunc) throws Exception {
         switch (apply.flowControl) {
             case CONTINUE: // this should be the most common
                 return ofWhileLoopSwitch(emptyCase, condition, func, contFunc);
@@ -223,8 +223,8 @@ public class CallerImpl {
      * @param contFunc how to continue with recursive call result
      * @return
      */
-    public static <T> Caller<T> ofWhileLoop(Caller<T> emptyCase, Supplier<Boolean> condition, Supplier<Caller<T>> func, Function<T, CallerFlowControl<T>> contFunc) {
-        return Caller.ofSupplier(() -> ofWhileLoopSwitch(emptyCase, condition, func, contFunc));
+    public static <T> Caller<T> ofWhileLoop(Caller<T> emptyCase, Callable<Boolean> condition, Callable<Caller<T>> func, CheckedFunction<T, CallerFlowControl<T>> contFunc) {
+        return Caller.ofCallable(() -> ofWhileLoopSwitch(emptyCase, condition, func, contFunc));
 
     }
 
@@ -238,9 +238,9 @@ public class CallerImpl {
      * @param contFunc how to continue with recursive call result
      * @return
      */
-    private static <T> Caller<T> ofWhileLoopSwitch(Caller<T> emptyCase, Supplier<Boolean> condition, Supplier<Caller<T>> func, Function<T, CallerFlowControl<T>> contFunc) {
+    private static <T> Caller<T> ofWhileLoopSwitch(Caller<T> emptyCase, Callable<Boolean> condition, Callable<Caller<T>> func, CheckedFunction<T, CallerFlowControl<T>> contFunc) throws Exception {
 
-        if (!condition.get()) {
+        if (!condition.call()) {
             return emptyCase;
         }
 
