@@ -195,7 +195,7 @@ public class CallerImpl {
      */
     public static <T> Caller<T> ofDoWhileLoop(Caller<T> emptyCase, Callable<Boolean> condition, Callable<Caller<T>> func, CheckedFunction<T, CallerFlowControl<T>> contFunc) {
         return new CallerBuilder<T>(1)
-                .withDependencySupp(func)
+                .withDependencyCallable(func)
                 .toCall(args -> flowControlSwitch(contFunc.apply(args._0), emptyCase, condition, func, contFunc));
 
     }
@@ -245,7 +245,7 @@ public class CallerImpl {
         }
 
         return new CallerBuilder<T>(1)
-                .withDependencySupp(func)
+                .withDependencyCallable(func)
                 .toCall(args -> flowControlSwitch(contFunc.apply(args._0), emptyCase, condition, func, contFunc));
 
     }
@@ -266,7 +266,7 @@ public class CallerImpl {
 
     private static final CastList emptyArgs = new CastList<>(null);
 
-    private static <T> T resolveThreadedInner(Caller<T> caller, long stackLimit, long callLimit, int branch, int prevStackSize, AtomicLong callNumber, Executor exe) throws InterruptedException, CompletionException, CancellationException, TimeoutException, ExecutionException {
+    private static <T> T resolveThreadedInner(Caller<T> caller, long stackLimit, long callLimit, int branch, int prevStackSize, AtomicLong callNumber, Executor exe) throws InterruptedException, CancellationException, TimeoutException, ExecutionException {
 
         Deque<StackFrame<T>> stack = new ArrayDeque<>();
 
@@ -307,7 +307,7 @@ public class CallerImpl {
             }
             // in stack
             if (stackLimit > 0 && (prevStackSize + stackLimit) <= stack.size()) {
-                throw new IllegalStateException("Stack limit overrun " + stack.size() + prevStackSize);
+                throw new CallerException("Stack limit overrun " + stack.size() + prevStackSize);
             }
             StackFrame<T> frame = stack.getLast();
             caller = frame.call;

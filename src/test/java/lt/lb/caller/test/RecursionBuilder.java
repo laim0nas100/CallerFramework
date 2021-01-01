@@ -8,7 +8,6 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import lt.lb.caller.Caller;
 import lt.lb.caller.CallerBuilder;
-import lt.lb.caller.SharedCallerBuilder;
 
 /**
  *
@@ -115,7 +114,8 @@ public class RecursionBuilder {
         throw new IllegalStateException();
     }
 
-    public static long recursiveCounter(long c1, long c2, long c3) {
+    public static long recursiveCounter(AtomicLong t, long c1, long c2, long c3) {
+        t.incrementAndGet();
         if (c1 <= 0) {
             return 0;
         } else if (c2 <= 0) {
@@ -128,14 +128,18 @@ public class RecursionBuilder {
             c3--;
         }
 
-        return recursiveCounter(
-                recursiveCounter(c1, recursiveCounter(c1, c2, recursiveCounter(c1, c2, c3)), recursiveCounter(c1, c2, c3)),
-                recursiveCounter(c1, c2, recursiveCounter(c1, c2, c3)),
-                recursiveCounter(c1, c2, c3)
+        final long fc1 = c1;
+        final long fc2 = c2;
+        final long fc3 = c3;
+        return recursiveCounter(t,
+                recursiveCounter(t, fc1, recursiveCounter(t, fc1, fc2, recursiveCounter(t, fc1, fc2, fc3)), recursiveCounter(t, fc1, fc2, fc3)),
+                recursiveCounter(t, fc1, fc2, recursiveCounter(t, fc1, fc2, fc3)),
+                recursiveCounter(t, fc1, fc2, fc3)
         );
     }
 
-    public static Caller<Long> recursiveCounterCaller(long c1, long c2, long c3) {
+    public static Caller<Long> recursiveCounterCaller(AtomicLong t, long c1, long c2, long c3) {
+        t.incrementAndGet();
         if (c1 <= 0) {
             return Caller.ofResult(0L);
         } else if (c2 <= 0) {
@@ -151,10 +155,10 @@ public class RecursionBuilder {
         final long fc1 = c1;
         final long fc2 = c2;
         final long fc3 = c3;
-        Caller<Long> call_1 = Caller.ofFunction(args -> recursiveCounterCaller(fc1, fc2, fc3));
-        Caller<Long> call_2 = new CallerBuilder<Long>().with(call_1).toCall(args -> recursiveCounterCaller(fc1, fc2, args.get(0)));
-        Caller<Long> call_3 = new CallerBuilder<Long>().with(call_1, call_2).toCall(args -> recursiveCounterCaller(fc1, args.get(0), args.get(1)));
-        return new CallerBuilder<Long>().with(call_3, call_2, call_1).toCall(a -> recursiveCounterCaller(a.get(0), a.get(1), a.get(2)));
+        Caller<Long> call_1 = Caller.ofCallable(() -> recursiveCounterCaller(t, fc1, fc2, fc3));
+        Caller<Long> call_2 = new CallerBuilder<Long>().with(call_1).toCall(a -> recursiveCounterCaller(t, fc1, fc2, a.get(0)));
+        Caller<Long> call_3 = new CallerBuilder<Long>().with(call_1, call_2).toCall(a -> recursiveCounterCaller(t, fc1, a.get(0), a.get(1)));
+        return new CallerBuilder<Long>().with(call_3, call_2, call_1).toCall(a -> recursiveCounterCaller(t, a.get(0), a.get(1), a.get(2)));
 
     }
 
@@ -174,7 +178,7 @@ public class RecursionBuilder {
         return recursiveCounter2(c1, c2, c3);
     }
 
-    public static Caller<Long> recursiveCounterCaller3(long c1, long c2, long c3, String st) {
+    public static Caller<Long> recursiveCounterCaller2(long c1, long c2, long c3, String st) {
         if (c1 <= 0) {
             return Caller.ofResult(0L);
         } else if (c2 <= 0) {
@@ -187,27 +191,27 @@ public class RecursionBuilder {
         final long fc1 = c1;
         final long fc2 = c2;
         final long fc3 = 0L;
-        Caller<Long> call_2 = new SharedCallerBuilder<Long>().with(
+        Caller<Long> call_2 = new CallerBuilder<Long>().with(
                 Caller.ofResult(fc1),
                 Caller.ofResult(fc2),
                 Caller.ofResult(fc3)
         )
-                .toCall(a -> {
-                    return recursiveCounterCaller3(a._0, a._1, a._2, st + ".");
+                .toCallShared(a -> {
+                    return recursiveCounterCaller2(a._0, a._1, a._2, st + ".");
                 });
-        Caller<Long> call_1 = new SharedCallerBuilder<Long>()
+        Caller<Long> call_1 = new CallerBuilder<Long>()
                 .with(
                         Caller.ofResult(fc1),
                         call_2,
                         Caller.ofResult(fc3)
                 )
-                .toCall(a -> {
-                    return recursiveCounterCaller3(a._0, a._1, a._2, st + ".");
+                .toCallShared(a -> {
+                    return recursiveCounterCaller2(a._0, a._1, a._2, st + ".");
                 });
 
         return new CallerBuilder<Long>().with(call_1, call_2, Caller.ofResult(fc3))
                 .toCall(a -> {
-                    return recursiveCounterCaller3(a._0, a._1, a._2, st + ".");
+                    return recursiveCounterCaller2(a._0, a._1, a._2, st + ".");
                 });
 
     }
@@ -234,7 +238,7 @@ public class RecursionBuilder {
         list2.add(numb);
         final long n = numb - 1;
 
-        Caller<Long> toCall = new SharedCallerBuilder<Long>().toCall(arg -> rec2Caller(n));
+        Caller<Long> toCall = Caller.ofCallableShared(() -> rec2Caller(n));
 
         Caller<Long> toCall1 = new CallerBuilder<Long>().with(toCall).toCall(args -> rec2Caller(n - args.get(0)));
 
@@ -256,7 +260,6 @@ public class RecursionBuilder {
             }
         }
     }
-    static CallerBuilder<Long> sharedBuilder = new SharedCallerBuilder<Long>();
 
     public static Caller<Long> recrazyCaller(long number, AtomicLong counter) {
         counter.incrementAndGet();
@@ -266,10 +269,12 @@ public class RecursionBuilder {
             if (number > 5000) {
                 return Caller.ofResult(number);
             } else {
-                Caller<Long> n1 = sharedBuilder.toCall(a -> recrazyCaller(number * 3, counter));
+                Caller<Long> n1 = Caller.ofCallableShared(() -> recrazyCaller(number * 3, counter));
+                //once you compute a result, you can use it without recomputing
+                // without using shared Caller n1 would be recomputed each time it is used in a dependency
                 CallerBuilder<Long> builder = new CallerBuilder<Long>().with(n1);
-                Caller<Long> n2 = builder.toCall(a -> recrazyCaller(a._0 + 1, counter));
-                Caller<Long> n3 = builder.toCall(a -> recrazyCaller(a._0 + 2, counter));
+                Caller<Long> n2 = builder.toCallShared(a -> recrazyCaller(a._0 + 1, counter));
+                Caller<Long> n3 = builder.toCallShared(a -> recrazyCaller(a._0 + 2, counter));
                 return new CallerBuilder<Long>()
                         .with(n1, n2, n3)
                         .toCall(a -> recrazyCaller(a._0 + a._1 + a._2, counter));
@@ -283,6 +288,55 @@ public class RecursionBuilder {
             Thread.sleep(s);
         } catch (InterruptedException ex) {
 
+        }
+    }
+
+    public static BigInteger factorial(int n) {
+        if (n == 0) {
+            return BigInteger.ONE;
+        } else {
+            BigInteger val = BigInteger.valueOf(n);
+            BigInteger rec = factorial(n - 1);
+            return val.multiply(rec);
+        }
+    }
+
+    public static Caller<BigInteger> factorialCaller(int n) {
+        if (n == 0) {
+            return Caller.ofResult(BigInteger.ONE);
+        } else {
+            BigInteger val = BigInteger.valueOf(n);
+            return new CallerBuilder<BigInteger>()
+                    .withDependencyCallable(() -> factorialCaller(n - 1))
+                    .toResultCall(args -> val.multiply(args.get(0)));
+        }
+    }
+
+    public static Integer binarySearch(Integer[] data, Integer toFind, Integer start, Integer end) {
+        int mid = start + (end - start) / 2;
+
+        if (start > end) {
+            return -1;
+        } else if (Objects.equals(data[mid], toFind)) {
+            return mid;
+        } else if (data[mid] > toFind) {
+            return binarySearch(data, toFind, start, mid - 1);
+        } else {
+            return binarySearch(data, toFind, mid + 1, end);
+        }
+    }
+
+    public static Caller<Integer> binarySearchCaller(Integer[] data, Integer toFind, Integer start, Integer end) {
+        int mid = start + (end - start) / 2;
+
+        if (start > end) {
+            return Caller.ofResult(-1);
+        } else if (Objects.equals(data[mid], toFind)) {
+            return Caller.ofResult(mid);
+        } else if (data[mid] > toFind) {
+            return Caller.ofCallable(() -> binarySearchCaller(data, toFind, start, mid - 1));
+        } else {
+            return Caller.ofCallable(() -> binarySearchCaller(data, toFind, mid + 1, end));
         }
     }
 }

@@ -2,7 +2,7 @@ package lt.lb.caller.test;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -10,8 +10,15 @@ import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import lt.lb.caller.Caller;
-import lt.lb.caller.CallerForBuilder;
 import lt.lb.caller.CallerWhileBuilder;
+import static lt.lb.caller.test.TreeBuilder.DFS;
+import static lt.lb.caller.test.TreeBuilder.DFSCaller;
+import lt.lb.caller.test.TreeBuilder.NodeVisitor;
+import static lt.lb.caller.test.TreeBuilder.PostOrder;
+import static lt.lb.caller.test.TreeBuilder.PostOrderCaller;
+import lt.lb.caller.test.TreeBuilder.TNode;
+import static lt.lb.caller.test.TreeBuilder.treeCollector;
+import static lt.lb.caller.test.TreeBuilder.treeVisitor;
 import org.junit.Test;
 
 /**
@@ -24,23 +31,27 @@ public class CallerTest {
 
     public static void multiAssert(Object... objs) {
         for (int i = 1; i < objs.length; i++) {
-            Object a = objs[i - 1];
+            int j = i - 1;
+            Object a = objs[j];
             Object b = objs[i];
-            if (!Objects.equals(a, b)) {
-                throw new AssertionError(a + " != " + b);
+            if (!Objects.deepEquals(a, b)) {
+                throw new AssertionError(a + " != " + b + " in objects:" + Arrays.asList(objs) + " at index:" + j + "," + i);
             }
         }
     }
 
     @Test
-    public void callerTest() {
+    public void fibbTest() {
         int exp = 20;
         BigInteger big = BigInteger.valueOf(100);
         BigInteger fibb = RecursionBuilder.fibb(BigInteger.valueOf(1), BigInteger.valueOf(1), big.pow(exp));
         BigInteger resolve = RecursionBuilder.fibbCaller(BigInteger.valueOf(1), BigInteger.valueOf(1), big.pow(exp)).resolve();
 
         multiAssert(fibb, resolve);
+    }
 
+    @Test
+    public void ackermannTest() {
         BigInteger m = BigInteger.valueOf(2);
         BigInteger n = BigInteger.valueOf(8);
         multiAssert(
@@ -48,9 +59,61 @@ public class CallerTest {
                 RecursionBuilder.ackermannCaller(m, n).resolve(),
                 RecursionBuilder.ackermannCaller(m, n).resolveThreaded()
         );
+    }
+
+    @Test
+    public void binarySearchTest() {
+        int bound = Interval.of(rng, 10000, 20000).getRandom();
+        Integer[] data = new Integer[bound];
+        for (int i = 0; i < bound; i++) {
+            data[i] = rng.nextInt();
+        }
+
+        int toFind = data[rng.nextInt(bound)];
+
+        Arrays.sort(data);
+
+        multiAssert(
+                RecursionBuilder.binarySearch(data, toFind, 0, bound),
+                RecursionBuilder.binarySearchCaller(data, toFind, 0, bound).resolve()
+        );
+    }
+
+    @Test
+    public void mergeSortTest() {
+        int bound = Interval.of(rng, 10000, 20000).getRandom();
+        Integer[] data = new Integer[bound];
+        for (int i = 0; i < bound; i++) {
+            data[i] = rng.nextInt();
+        }
+        Integer[] base = Arrays.copyOf(data, data.length);
+
+        Integer[] copy1 = Arrays.copyOf(data, data.length);
+        Integer[] copy2 = Arrays.copyOf(data, data.length);
+        Integer[] copy3 = Arrays.copyOf(data, data.length);
+
+        Arrays.sort(base);
+        MergeSort.sort(copy1, 0, bound - 1);
+        MergeSort.sortCaller(copy2, 0, bound - 1).resolve();
+        MergeSort.sortCaller(copy3, 0, bound - 1).resolveThreaded();
+
+        multiAssert(base, copy1, copy2, copy3);
+    }
+
+    @Test
+    public void factorialTest() {
+        int num = rng.nextInt(10) + 10;
+        multiAssert(
+                RecursionBuilder.factorial(num),
+                RecursionBuilder.factorialCaller(num).resolve()
+        );
+    }
+
+    @Test
+    public void crazyRecursionTest1() {
 
         for (int i = 0; i < 50; i++) {
-            Long num = rng.nextLong() % 1000;
+            Long num = rng.nextLong() % 500;
             AtomicLong c1 = new AtomicLong();
             AtomicLong c2 = new AtomicLong();
             AtomicLong c3 = new AtomicLong();
@@ -61,49 +124,26 @@ public class CallerTest {
             );
 
             multiAssert(c1.get(), c2.get(), c3.get());
+
         }
     }
 
-    public static class TNode {
+    @Test
+    public void crazierRecursionTest2() {
 
-        public int value;
-        public List<TNode> children = new ArrayList<>();
+        long a = 2;
+        long b = 1;
+        long c = 1;
+        AtomicLong c1 = new AtomicLong();
+        AtomicLong c2 = new AtomicLong();
+        AtomicLong c3 = new AtomicLong();
+        multiAssert(
+                RecursionBuilder.recursiveCounter(c1, a, b, c),
+                RecursionBuilder.recursiveCounterCaller(c2, a, b, c).resolve(),
+                RecursionBuilder.recursiveCounterCaller(c3, a, b, c).resolveThreaded()
+        );
 
-        public TNode(int value, TNode... children) {
-            this.value = value;
-            for (TNode child : children) {
-                this.children.add(child);
-            }
-        }
-
-        @Override
-        public int hashCode() {
-            int hash = 7;
-            hash = 37 * hash + this.value;
-            hash = 37 * hash + Objects.hashCode(this.children);
-            return hash;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj) {
-                return true;
-            }
-            if (obj == null) {
-                return false;
-            }
-            if (getClass() != obj.getClass()) {
-                return false;
-            }
-            final TNode other = (TNode) obj;
-            if (this.value != other.value) {
-                return false;
-            }
-            if (!Objects.equals(this.children, other.children)) {
-                return false;
-            }
-            return true;
-        }
+        multiAssert(c1.get(), c2.get(), c3.get());
 
     }
 
@@ -165,7 +205,7 @@ public class CallerTest {
     }
 
     public Interval getLayers(Random r) {
-        return Interval.of(r, 5, 8);
+        return Interval.of(r, 4, 6);
     }
 
     public Interval getChildren(Random r) {
@@ -204,10 +244,10 @@ public class CallerTest {
             NodeVisitor it = treeVisitor(root, id);
 
             multiAssert(
-                    DFS(it, root, Optional.empty()),
-                    PostOrder(it, root, Optional.empty()),
-                    DFSCaller(it, root, Optional.empty()).resolve(),
-                    PostOrderCaller(it, root, Optional.empty()).resolve()
+                    DFS(it, root, null),
+                    PostOrder(it, root, null),
+                    DFSCaller(it, root, null).resolve(),
+                    PostOrderCaller(it, root, null).resolve()
             );
 
         }
@@ -233,127 +273,14 @@ public class CallerTest {
             List<Integer> post_2 = new ArrayList<>();
 
             multiAssert(
-                    DFS(treeCollector(root, id, dfs_1), root, Optional.empty()),
-                    DFSCaller(treeCollector(root, id, dfs_2), root, Optional.empty()).resolve()
+                    DFS(treeCollector(root, id, dfs_1), root, null),
+                    DFSCaller(treeCollector(root, id, dfs_2), root, null).resolve()
             );
             multiAssert(
-                    PostOrder(treeCollector(root, id, post_1), root, Optional.empty()),
-                    PostOrderCaller(treeCollector(root, id, post_2), root, Optional.empty()).resolve()
+                    PostOrder(treeCollector(root, id, post_1), root, null),
+                    PostOrderCaller(treeCollector(root, id, post_2), root, null).resolve()
             );
         }
-    }
-
-    public static interface NodeVisitor {
-
-        public boolean find(TNode node);
-
-        public default List<TNode> getChildren(TNode node) {
-            return node.children;
-        }
-    }
-
-    public static NodeVisitor treeVisitor(TNode root, int id) {
-        return (TNode node) -> node.value == id;
-    }
-
-    public static NodeVisitor treeCollector(TNode root, int id, List<Integer> list) {
-        return (TNode node) -> {
-            list.add(node.value);
-            return node.value == id;
-        };
-    }
-
-    private static <T> Optional<Caller<Optional<T>>> visitedCheckCaller(T node, Optional<Collection<T>> visited) {
-        if (visited.isPresent()) {
-            Collection<T> get = visited.get();
-            if (get.contains(node)) {
-                return Optional.of(Caller.ofResult(Optional.empty())); // prevent looping
-            } else {
-                get.add(node);
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static <T> Optional<T> visitedCheck(T node, Optional<Collection<T>> visited) {
-        if (visited.isPresent()) {
-            Collection<T> get = visited.get();
-            if (get.contains(node)) {
-                return Optional.of(node); // prevent looping
-            } else {
-                get.add(node);
-            }
-        }
-        return Optional.empty();
-    }
-
-    public static Optional<TNode> PostOrder(NodeVisitor visitor, TNode root, Optional<Collection<TNode>> visited) {
-        Optional<TNode> check = visitedCheck(root, visited);
-        if (check.isPresent()) {
-            return Optional.empty();//looping
-        }
-
-        for (TNode child : visitor.getChildren(root)) {
-            Optional<TNode> node = PostOrder(visitor, child, visited);
-            if (node.isPresent()) {
-                return node;
-            }
-        }
-
-        return visitor.find(root) ? Optional.ofNullable(root) : Optional.empty();
-    }
-
-    public static Caller<Optional<TNode>> PostOrderCaller(NodeVisitor visitor, TNode root, Optional<Collection<TNode>> visited) {
-        Optional<Caller<Optional<TNode>>> check = visitedCheckCaller(root, visited);
-        if (check.isPresent()) {
-            return check.get();// return empty optional wrapped in caller
-        }
-        return new CallerForBuilder<TNode, Optional<TNode>>()
-                .with(visitor.getChildren(root))
-                .forEachCall(item -> PostOrderCaller(visitor, item, visited))
-                .evaluate(item -> item.isPresent() ? Caller.flowReturn(item) : Caller.flowContinue())
-                .afterwards(Caller.ofCallableResult(() -> visitor.find(root) ? Optional.ofNullable(root) : Optional.empty()))
-                .build();
-    }
-
-    public static Optional<TNode> DFS(NodeVisitor visitor, TNode root, Optional<Collection<TNode>> visited) {
-        Optional<TNode> check = visitedCheck(root, visited);
-        if (check.isPresent()) {
-            return Optional.empty();//looping
-        }
-
-        if (visitor.find(root)) {
-            return Optional.ofNullable(root);
-        } else {
-            for (TNode n : visitor.getChildren(root)) {
-                Optional<TNode> maybeFound = DFS(visitor, n, visited);
-                if (maybeFound.isPresent()) {
-                    return maybeFound;
-                }
-            }
-            return Optional.empty();
-        }
-
-    }
-
-    public static Caller<Optional<TNode>> DFSCaller(NodeVisitor visitor, TNode root, Optional<Collection<TNode>> visited) {
-        Optional<Caller<Optional<TNode>>> check = visitedCheckCaller(root, visited);
-        if (check.isPresent()) {
-            return check.get(); // return empty optional wrapped in caller
-        }
-
-        if (visitor.find(root)) {
-            return Caller.ofResult(Optional.ofNullable(root));
-        } else {
-            return new CallerForBuilder<TNode, Optional<TNode>>()
-                    .with(visitor.getChildren(root))
-                    .forEachCall((i, item) -> DFSCaller(visitor, item, visited))
-                    .evaluate(item -> item.isPresent() ? Caller.flowReturn(item) : Caller.flowContinue())
-                    .afterwards(Caller.ofResult(Optional.empty()))
-                    .build();
-
-        }
-
     }
 
 }
