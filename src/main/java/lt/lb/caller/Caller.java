@@ -176,7 +176,7 @@ public class Caller<T> {
 
     /**
      * Caller modeling a recursive call with result computed and saved
-     * afterwards. 
+     * afterwards.
      *
      * @param <T>
      * @param call
@@ -201,7 +201,7 @@ public class Caller<T> {
             return null;
         });
     }
-    
+
     /**
      * Caller modeling a recursive call with no result or arguments.
      *
@@ -333,68 +333,70 @@ public class Caller<T> {
         return new CallerBuilder<T>(1).with(this);
     }
 
+    public static final CallerResolve singleThreadDefaultResolve = new CallerResolve().setInterruptible(false).setForkCount(0);
+    public static final CallerResolve threadedDefaultResolve = new CallerResolve().setInterruptible(true).setExecutorCommonForkPool();
+
     /**
-     * Resolve value without limits
+     * Resolve value without limits.
+     *
+     * Check {@link CallerResolve} for better customization of arguments.
      *
      * @return
      */
     public T resolve() {
-        return Caller.resolve(this);
+        return resolveUsing(singleThreadDefaultResolve);
     }
 
     /**
      * Resolve value without limits with {@link DEFAULT_FORK_COUNT} forks using
-     * ForkJoinPool.commonPool as executor
+     * ForkJoinPool.commonPool as executor.
+     *
+     * Check {@link CallerResolve} for better customization of arguments.
      *
      * @return
      */
     public T resolveThreaded() {
-        return Caller.resolveThreaded(this, DISABLED_STACK_LIMIT, DISABLED_CALL_LIMIT, DEFAULT_FORK_COUNT, ForkJoinPool.commonPool());
+        return resolveUsing(threadedDefaultResolve);
     }
 
     /**
-     * Resolve given caller without limits
+     * Resolve using given argument provider.
      *
-     * @param <T>
-     * @param caller root call point
+     * @param arguments
      * @return
      */
-    public static <T> T resolve(Caller<T> caller) {
-        return resolve(caller, DISABLED_STACK_LIMIT, DISABLED_CALL_LIMIT);
+    public T resolveUsing(CallerResolve arguments) {
+        return arguments.resolveValue(this);
     }
 
     /**
-     * Resolve function call chain with optional limits
+     * Get resolvable and customizable object with default base arguments for
+     * single-threaded resolve.
      *
-     * @param <T>
-     * @param caller root call point
-     * @param stackLimit limit of a stack size (each nested dependency expands
-     * stack by 1). Use non-positive to disable limit.
-     * @param callLimit limit of how many calls can be made (useful for endless
-     * recursion detection). Use non-positive to disable limit.
      * @return
      */
-    public static <T> T resolve(Caller<T> caller, int stackLimit, long callLimit) {
-        return CallerImpl.resolveThreaded(caller, stackLimit, callLimit, -1, Runnable::run); // should never throw exceptions related to threading
-
+    public CallerResolve.WithCaller<T> withArguments() {
+        return new CallerResolve.WithCaller<>(this, singleThreadDefaultResolve);
     }
 
     /**
-     * Resolve function call chain with optional limits
+     * Get resolvable and customizable object with default base arguments
      *
-     * @param <T>
-     * @param caller root call point
-     * @param stackLimit limit of a stack size (each nested dependency expands
-     * stack by 1). Use Optional.empty to disable limit.
-     * @param callLimit limit of how many calls can be made (useful for endless
-     * recursion detection). Use non-positive to disable limit.
-     * @param branch how many branch levels to allow (uses recursion) amount of
-     * forks is determined by {@code Caller} dependencies
-     * @param exe executor
      * @return
      */
-    public static <T> T resolveThreaded(Caller<T> caller, int stackLimit, long callLimit, int branch, Executor exe) {
-        return CallerImpl.resolveThreaded(caller, stackLimit, callLimit, branch, exe);
+    public CallerResolve.WithCaller<T> withThreadedArguments() {
+        return new CallerResolve.WithCaller<>(this, threadedDefaultResolve);
+    }
+
+    /**
+     * Get resolvable and customizable object with default base arguments as
+     * from provided arguments
+     *
+     * @param args provided arguments
+     * @return
+     */
+    public CallerResolve.WithCaller<T> withArguments(CallerResolve args) {
+        return new CallerResolve.WithCaller<>(this, args);
     }
 
 }

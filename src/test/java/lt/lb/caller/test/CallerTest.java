@@ -5,11 +5,19 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import lt.lb.caller.Caller;
+import lt.lb.caller.CallerResolve;
 import lt.lb.caller.CallerWhileBuilder;
 import static lt.lb.caller.test.TreeBuilder.DFS;
 import static lt.lb.caller.test.TreeBuilder.DFSCaller;
@@ -19,6 +27,7 @@ import static lt.lb.caller.test.TreeBuilder.PostOrderCaller;
 import lt.lb.caller.test.TreeBuilder.TNode;
 import static lt.lb.caller.test.TreeBuilder.treeCollector;
 import static lt.lb.caller.test.TreeBuilder.treeVisitor;
+import org.junit.Assert;
 import org.junit.Test;
 
 /**
@@ -129,7 +138,7 @@ public class CallerTest {
     }
 
     @Test
-    public void crazierRecursionTest2() {
+    public void crazierRecursionTest() {
 
         long a = 2;
         long b = 1;
@@ -144,6 +153,77 @@ public class CallerTest {
         );
 
         multiAssert(c1.get(), c2.get(), c3.get());
+
+    }
+
+    @Test
+    public void recSumTest() {
+
+        for (int i = 0; i < 1; i++) {
+            long n = 3;
+            multiAssert(
+                    RecursionBuilder.recSum(n),
+                    RecursionBuilder.recSumCaller(n).resolve()
+//                    RecursionBuilder.recSumCaller(n).resolveThreaded()
+            );
+        }
+
+    }
+
+    public static void main(String... args) throws Exception {
+        CallerTest callerTest = new CallerTest();
+        callerTest.recSumTest();
+    }
+
+    @Test
+    public void crazierRecursionTestInterrupted() throws Exception {
+
+        long a = 2;
+        long b = 2;
+        long c = 1;
+        AtomicLong c1 = new AtomicLong();
+        ScheduledExecutorService service = Executors.newSingleThreadScheduledExecutor();
+
+        Thread me = Thread.currentThread();
+
+        service.schedule(() -> {
+            me.interrupt();
+        }, 1, TimeUnit.SECONDS);
+        FutureTask<Long> future = RecursionBuilder.recursiveCounterCaller(c1, a, b, c)
+                .withArguments().setInterruptible(true).resolveFuture();
+
+        future.run();
+        service.shutdown();
+        Assert.assertThrows(ExecutionException.class, () -> {
+            future.get();
+        });
+
+    }
+
+    @Test
+    public void crazierRecursionTestCancelled() throws Exception {
+
+        long a = 2;
+        long b = 2;
+        long c = 1;
+        AtomicLong c1 = new AtomicLong();
+        ScheduledExecutorService service = Executors.newSingleThreadScheduledExecutor();
+
+        AtomicReference<FutureTask> ref = new AtomicReference();
+        service.schedule(() -> {
+            ref.get().cancel(true);
+        }, 1, TimeUnit.SECONDS);
+        FutureTask<Long> future = RecursionBuilder.recursiveCounterCaller(c1, a, b, c)
+                .withArguments().setInterruptible(true).resolveFuture();
+
+        ref.set(future);
+
+        future.run();
+        service.shutdown();
+
+        Assert.assertThrows(CancellationException.class, () -> {
+            future.get();
+        });
 
     }
 

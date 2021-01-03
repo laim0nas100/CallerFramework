@@ -339,4 +339,41 @@ public class RecursionBuilder {
             return Caller.ofCallable(() -> binarySearchCaller(data, toFind, mid + 1, end));
         }
     }
+
+    
+    static long min = 1L;
+    static long max = 1000000L;
+    public static Long recSum(long number) {
+
+        if (number <= min) {
+            return min;
+        }
+        if (number > max) {
+            return max;
+        }
+        long n1 = recSum(number*2);
+        long n2 = recSum(n1 * 2);
+        long n3 = recSum((n1 + n2) * 2);
+        long n4 = recSum(n1 + n2 + n3);
+
+        return number + n4;
+    }
+
+    public static Caller<Long> recSumCaller(long number) {
+
+        if (number <= min) {
+            return Caller.ofResult(min);
+        }
+        if (number >= max) {
+            return Caller.ofResult(max);
+        }
+
+//        System.out.println(number + ":" + counter.incrementAndGet());
+        Caller<Long> n1 = Caller.ofCallableShared(() -> recSumCaller(number * 2));
+        Caller<Long> n2 = new CallerBuilder<Long>(1).with(n1).toCallShared(a -> recSumCaller(a._0 * 2));
+        Caller<Long> n3 = new CallerBuilder<Long>(2).with(n1, n2).toCallShared(a -> recSumCaller((a._0+a._1) * 2));
+        Caller<Long> n4 = new CallerBuilder<Long>(2).with(n1, n2, n3).toCallShared(a -> recSumCaller(a._0 + a._1 + a._2));
+
+        return new CallerBuilder<Long>().with(n4).toResultCallShared(a -> number + a._0);
+    }
 }

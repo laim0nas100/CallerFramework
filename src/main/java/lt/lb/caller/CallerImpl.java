@@ -10,9 +10,12 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import lt.lb.caller.Caller.CallerType;
@@ -23,6 +26,7 @@ import lt.lb.caller.util.CheckedException;
 import lt.lb.caller.util.CheckedFunction;
 import lt.lb.caller.util.IndexedIterator;
 import lt.lb.caller.util.IndexedIterator.IndexedValue;
+import lt.lb.caller.util.TailRecursionInterator;
 import lt.lb.caller.util.sync.CompleablePromise;
 import lt.lb.caller.util.sync.Promise;
 import lt.lb.caller.util.sync.ValuePromise;
@@ -32,6 +36,82 @@ import lt.lb.caller.util.sync.ValuePromise;
  * @author laim0nas100
  */
 public class CallerImpl {
+
+    private static class ThreadStack {
+
+        protected TailRecursionInterator<ThreadStack> parentIterator() {
+            return new TailRecursionInterator<>(parent, p -> p.parent);
+        }
+
+        protected ThreadStack parent;
+        protected Thread thread;
+        protected AtomicBoolean interrupted = new AtomicBoolean(false);
+        protected AtomicBoolean proliferated = new AtomicBoolean(false);
+
+        public ThreadStack() {
+            thread = Thread.currentThread();
+        }
+
+        public ThreadStack(ThreadStack parent, Thread thread) {
+            this.parent = parent;
+            this.thread = thread;
+        }
+
+        public static ThreadStack createOrReuse(ThreadStack parent) {
+            if (parent == null) {
+                return null;
+            }
+            if (parent.thread.equals(Thread.currentThread())) {
+                return parent;
+            } else {
+                return new ThreadStack(parent);
+            }
+        }
+
+        public ThreadStack(ThreadStack parent) {
+            this.parent = parent;
+            this.thread = Thread.currentThread();
+        }
+
+        protected void proliferatedInterrupt() {
+            if (proliferated.compareAndSet(false, true)) {
+                interrupted.set(true);
+                thread.interrupt();
+
+            }
+        }
+
+        protected void proliferateUp() {
+            if (proliferated.compareAndSet(false, true)) {
+                for (ThreadStack stack : parentIterator()) {
+                    stack.proliferatedInterrupt();
+                }
+            }
+        }
+
+        public boolean wasInterrupted() {
+            if (interrupted.get() && proliferated.get()) {
+                return true;
+            }
+            if (Thread.interrupted()) {
+                if (interrupted.compareAndSet(false, true)) {
+                    proliferateUp();
+                }// someone else allread proliferating
+                return true;
+            } else { // not interrupted, but maybe parent was?
+                for (ThreadStack stack : parentIterator()) {
+                    if (stack.interrupted.get()) {//found interrupted parent
+                        if (interrupted.compareAndSet(false, true)) {
+                            proliferateUp();
+                        }
+                        return true;
+                    }
+                }
+            }
+
+            return interrupted.get();
+        }
+    }
 
     private static class StackFrame<T> implements Serializable {
 
@@ -77,26 +157,50 @@ public class CallerImpl {
     }
 
     /**
-     * Resolve function call chain with optional limits
+     * Resolve Caller with optional limits
      *
      * @param <T>
      * @param caller
+     * @param interruptible check if interrupted before each call
      * @param stackLimit limit of a stack size (each nested dependency expands
      * stack by 1). Use non-positive to disable limit.
      * @param callLimit limit of how many calls can be made (useful for endless
      * recursion detection). Use non-positive to disable limit.
-     * @param branch how many branch levels to allow (uses recursion) amount of
+     * @param forkCount how many fork levels to allow (uses recursion) amount of
      * forks is determined by {@code Caller} dependencies
      * @param exe executor
      * @return
      */
-    public static <T> T resolveThreaded(Caller<T> caller, int stackLimit, long callLimit, int branch, Executor exe) throws CheckedException {
+    public static <T> T resolveThreaded(Caller<T> caller, boolean interruptible, int stackLimit, long callLimit, int forkCount, Executor exe) throws CheckedException {
         try {
-            return resolveThreadedInner(caller, stackLimit, callLimit, branch, 0, new AtomicLong(0), exe);
+            ThreadStack threadStack = interruptible ? new ThreadStack() : null;
+            return resolveThreadedInner(caller, threadStack, stackLimit, callLimit, forkCount, 0, new AtomicLong(0), exe);
         } catch (TimeoutException | InterruptedException | CancellationException | CompletionException | ExecutionException ex) {
             throw new CheckedException(ex);
         }
 
+    }
+
+    /**
+     * Resolve Caller with optional limits as a FutureTask
+     *
+     * @param <T>
+     * @param caller
+     * @param interruptible check if interrupted before each call
+     * @param stackLimit limit of a stack size (each nested dependency expands
+     * stack by 1). Use non-positive to disable limit.
+     * @param callLimit limit of how many calls can be made (useful for endless
+     * recursion detection). Use non-positive to disable limit.
+     * @param forkCount how many branch levels to allow (uses recursion) amount
+     * of forks is determined by {@code Caller} dependencies
+     * @param exe executor
+     * @return
+     */
+    public static <T> FutureTask<T> resolveFuture(Caller<T> caller, boolean interruptible, int stackLimit, long callLimit, int forkCount, Executor exe) {
+        return new FutureTask<>(() -> {
+            ThreadStack threadStack = interruptible ? new ThreadStack() : null;
+            return resolveThreadedInner(caller, threadStack, stackLimit, callLimit, forkCount, 0, new AtomicLong(0), exe);
+        });
     }
 
     /**
@@ -259,20 +363,23 @@ public class CallerImpl {
         }
         return value;
     }
-
+    
     private static <T> boolean runnerCAS(Caller<T> caller) {
         return caller.isSharedNotDone() && caller.started.compareAndSet(false, true);
     }
 
     private static final CastList emptyArgs = new CastList<>(null);
 
-    private static <T> T resolveThreadedInner(Caller<T> caller, long stackLimit, long callLimit, int branch, int prevStackSize, AtomicLong callNumber, Executor exe) throws InterruptedException, CancellationException, TimeoutException, ExecutionException {
+    private static <T> T resolveThreadedInner(Caller<T> caller, ThreadStack threadStack, final long stackLimit, final long callLimit, final int fork, final int prevStackSize, AtomicLong callNumber, Executor exe) throws InterruptedException, CancellationException, TimeoutException, ExecutionException {
 
         Deque<StackFrame<T>> stack = new ArrayDeque<>();
 
         Deque<Caller<T>> emptyStackShared = new ArrayDeque<>();
 
         while (true) {
+            if (threadStack != null && threadStack.wasInterrupted()) {
+                throw new InterruptedException("Caller has been interrupted");
+            }
             if (stack.isEmpty()) {
                 switch (caller.type) {
                     case RESULT:
@@ -368,7 +475,7 @@ public class CallerImpl {
                     continue;
                 }
                 // dep not empty and no threading
-                if (branch <= 0 || caller.dependencies.size() <= 1) {
+                if (fork <= 0 || caller.dependencies.size() <= 1) {
                     Caller<T> get = caller.dependencies.get(frame.index);
                     frame.index++;
                     switch (get.type) {
@@ -401,7 +508,7 @@ public class CallerImpl {
                             break;
                         case FUNCTION:
                             new Promise<>(() -> { // actually use recursion, because localizing is hard, and has to be fast, so just limit branching size
-                                return resolveThreadedInner(c, stackLimit, callLimit, branch - 1, stackSize, callNumber, exe);
+                                return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), stackLimit, callLimit, fork - 1, stackSize, callNumber, exe);
                             }).execute(exe).collect(array);
                             break;
                         case SHARED:
@@ -409,7 +516,7 @@ public class CallerImpl {
                                 array.add(new CompleablePromise<>(c.compl));
                             } else {
                                 new Promise(() -> { // actually use recursion, because localizing is hard, and has to be fast, so just limit branching size
-                                    return resolveThreadedInner(c, stackLimit, callLimit, branch - 1, stackSize, callNumber, exe);
+                                    return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), stackLimit, callLimit, fork - 1, stackSize, callNumber, exe);
                                 }).execute(exe).collect(array);
                             }
                             break;

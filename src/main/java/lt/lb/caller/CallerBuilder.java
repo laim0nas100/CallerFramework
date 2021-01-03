@@ -1,11 +1,10 @@
 package lt.lb.caller;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
-import static lt.lb.caller.Caller.ofFunction;
-import static lt.lb.caller.Caller.ofFunctionShared;
 import lt.lb.caller.util.CastList;
 import lt.lb.caller.util.CheckedFunction;
 import lt.lb.caller.util.CheckedRunnable;
@@ -43,6 +42,14 @@ public class CallerBuilder<T> {
         return this;
     }
 
+    public CallerBuilder<T> with(Collection<Caller<T>> deps) {
+        if (dependants == null) {
+            dependants = new ArrayList<>(deps.size());
+        }
+        dependants.addAll(deps);
+        return this;
+    }
+
     public CallerBuilder<T> withDependencyCall(CheckedFunction<CastList<T>, Caller<T>> call) {
         Objects.requireNonNull(call);
         return with(Caller.ofFunction(call));
@@ -66,7 +73,6 @@ public class CallerBuilder<T> {
     public CallerBuilder<T> withDependencyResult(T res) {
         return with(Caller.ofResult(res));
     }
-    
 
     public CallerBuilder<T> withDependencyRunnable(CheckedRunnable run) {
         Objects.requireNonNull(run);
