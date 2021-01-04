@@ -1,8 +1,6 @@
 package lt.lb.caller.util.sync;
 
-import java.util.Collection;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;

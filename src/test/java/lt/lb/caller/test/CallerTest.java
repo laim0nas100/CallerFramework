@@ -93,7 +93,7 @@ public class CallerTest {
         int bound = Interval.of(rng, 10000, 20000).getRandom();
         Integer[] data = new Integer[bound];
         for (int i = 0; i < bound; i++) {
-            data[i] = rng.nextInt();
+            data[i] = rng.nextInt() % 100000;
         }
         Integer[] base = Arrays.copyOf(data, data.length);
 
@@ -105,7 +105,7 @@ public class CallerTest {
         MergeSort.sort(copy1, 0, bound - 1);
         MergeSort.sortCaller(copy2, 0, bound - 1).resolve();
         MergeSort.sortCaller(copy3, 0, bound - 1).resolveThreaded();
-
+        
         multiAssert(base, copy1, copy2, copy3);
     }
 
@@ -159,12 +159,12 @@ public class CallerTest {
     @Test
     public void recSumTest() {
 
-        for (int i = 0; i < 1; i++) {
-            long n = 3;
+        for (int i = 0; i < 5; i++) {
+            long n = rng.nextInt() % 10 + 2;
             multiAssert(
                     RecursionBuilder.recSum(n),
-                    RecursionBuilder.recSumCaller(n).resolve()
-//                    RecursionBuilder.recSumCaller(n).resolveThreaded()
+                    RecursionBuilder.recSumCaller(n).resolve(),
+                    RecursionBuilder.recSumCaller(n).resolveThreaded()
             );
         }
 
@@ -172,7 +172,7 @@ public class CallerTest {
 
     public static void main(String... args) throws Exception {
         CallerTest callerTest = new CallerTest();
-        callerTest.recSumTest();
+        callerTest.mergeSortTest();
     }
 
     @Test

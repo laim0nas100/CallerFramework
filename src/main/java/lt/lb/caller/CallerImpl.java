@@ -37,16 +37,16 @@ import lt.lb.caller.util.sync.ValuePromise;
  */
 public class CallerImpl {
 
-    private static class ThreadStack {
+    static class ThreadStack {
 
-        protected TailRecursionInterator<ThreadStack> parentIterator() {
+        TailRecursionInterator<ThreadStack> parentIterator() {
             return new TailRecursionInterator<>(parent, p -> p.parent);
         }
 
-        protected ThreadStack parent;
-        protected Thread thread;
-        protected AtomicBoolean interrupted = new AtomicBoolean(false);
-        protected AtomicBoolean proliferated = new AtomicBoolean(false);
+        ThreadStack parent;
+        Thread thread;
+        AtomicBoolean interrupted = new AtomicBoolean(false);
+        AtomicBoolean proliferated = new AtomicBoolean(false);
 
         public ThreadStack() {
             thread = Thread.currentThread();
@@ -58,13 +58,19 @@ public class CallerImpl {
         }
 
         public static ThreadStack createOrReuse(ThreadStack parent) {
-            if (parent == null) {
+            if (parent == null) { // disabled
                 return null;
             }
             if (parent.thread.equals(Thread.currentThread())) {
                 return parent;
             } else {
-                return new ThreadStack(parent);
+                //minimize depth to 2
+                if (parent.parent == null) {
+                    return new ThreadStack(parent);
+                } else {
+                    return new ThreadStack(parent.parent);
+                }
+
             }
         }
 
@@ -75,9 +81,9 @@ public class CallerImpl {
 
         protected void proliferatedInterrupt() {
             if (proliferated.compareAndSet(false, true)) {
-                interrupted.set(true);
-                thread.interrupt();
-
+                if (interrupted.compareAndSet(false, true)) {
+                    thread.interrupt();
+                }
             }
         }
 
@@ -113,12 +119,12 @@ public class CallerImpl {
         }
     }
 
-    private static class StackFrame<T> implements Serializable {
+    static class StackFrame<T> implements Serializable {
 
-        private Caller<T> call;
-        private ArrayList<T> args;
-        private int index;
-        private Collection<Caller<T>> sharedStack;
+        Caller<T> call;
+        ArrayList<T> args;
+        int index;
+        Collection<Caller<T>> memoizingStack;
 
         public StackFrame(Caller<T> call) {
             continueWith(call);
@@ -128,11 +134,11 @@ public class CallerImpl {
             this.args = call.dependencies == null ? null : new ArrayList<>(call.dependencies.size());
             this.call = call;
             this.index = 0;
-            if (call.type == CallerType.SHARED) {
-                if (sharedStack == null) {
-                    sharedStack = new ArrayDeque<>();
+            if (call.type == CallerType.MEMOIZING) {
+                if (memoizingStack == null) {
+                    memoizingStack = new ArrayDeque<>();
                 }
-                sharedStack.add(call);
+                memoizingStack.add(call);
             }
         }
 
@@ -142,7 +148,7 @@ public class CallerImpl {
 
         @Override
         public String toString() {
-            return "StackFrame{" + "call=" + call + ", args=" + args + ", index=" + index + ", sharedStack=" + sharedStack + '}';
+            return "StackFrame{" + "call=" + call + ", args=" + args + ", index=" + index + ", memoizingStack=" + memoizingStack + '}';
         }
 
     }
@@ -191,8 +197,8 @@ public class CallerImpl {
      * stack by 1). Use non-positive to disable limit.
      * @param callLimit limit of how many calls can be made (useful for endless
      * recursion detection). Use non-positive to disable limit.
-     * @param forkCount how many branch levels to allow (uses recursion) amount
-     * of forks is determined by {@code Caller} dependencies
+     * @param forkCount how many fork levels to allow (uses recursion) amount of
+     * forks is determined by {@code Caller} dependencies
      * @param exe executor
      * @return
      */
@@ -242,7 +248,7 @@ public class CallerImpl {
      * of evaluation does not matter.
      *
      * Recommended to not use directly for readability. Use
-     * {@link CallerForBuilderThreaded}.
+     * {@link CallerForBuilderBulk}.
      *
      * @param <T> the main type of Caller product
      * @param <R> type that iteration happens
@@ -260,7 +266,7 @@ public class CallerImpl {
 
         while (iterator.hasNext()) {
             IndexedValue<R> n = iterator.nextIndexed();
-            b.withDependencyCall(args -> func.apply(n.index, n.value));
+            b.with(args -> func.apply(n.index, n.value));
         }
 
         return b.toCall(args -> {
@@ -299,7 +305,7 @@ public class CallerImpl {
      */
     public static <T> Caller<T> ofDoWhileLoop(Caller<T> emptyCase, Callable<Boolean> condition, Callable<Caller<T>> func, CheckedFunction<T, CallerFlowControl<T>> contFunc) {
         return new CallerBuilder<T>(1)
-                .withDependencyCallable(func)
+                .with(func)
                 .toCall(args -> flowControlSwitch(contFunc.apply(args._0), emptyCase, condition, func, contFunc));
 
     }
@@ -349,7 +355,7 @@ public class CallerImpl {
         }
 
         return new CallerBuilder<T>(1)
-                .withDependencyCallable(func)
+                .with(func)
                 .toCall(args -> flowControlSwitch(contFunc.apply(args._0), emptyCase, condition, func, contFunc));
 
     }
@@ -361,11 +367,12 @@ public class CallerImpl {
         for (Caller<T> call : s) {
             call.compl.complete(value);
         }
+        s.clear();
         return value;
     }
-    
+
     private static <T> boolean runnerCAS(Caller<T> caller) {
-        return caller.isSharedNotDone() && caller.started.compareAndSet(false, true);
+        return caller.isMemoizedNotDone() && caller.started.compareAndSet(false, true);
     }
 
     private static final CastList emptyArgs = new CastList<>(null);
@@ -374,7 +381,7 @@ public class CallerImpl {
 
         Deque<StackFrame<T>> stack = new ArrayDeque<>();
 
-        Deque<Caller<T>> emptyStackShared = new ArrayDeque<>();
+        Deque<Caller<T>> firstMemoizedStack = new ArrayDeque<>();
 
         while (true) {
             if (threadStack != null && threadStack.wasInterrupted()) {
@@ -383,20 +390,19 @@ public class CallerImpl {
             if (stack.isEmpty()) {
                 switch (caller.type) {
                     case RESULT:
-                        return complete(emptyStackShared, caller.value);
-                    case SHARED:
-
+                        return complete(firstMemoizedStack, caller.value);
+                    case MEMOIZING:
                         if (runnerCAS(caller)) {
                             if (caller.dependencies == null) {
                                 assertCallLimit(callLimit, callNumber);
-                                emptyStackShared.add(caller);
+                                firstMemoizedStack.add(caller);
                                 caller = caller.call.apply(emptyArgs);
                             } else {
                                 stack.addLast(new StackFrame<>(caller));
                             }
                             break;
                         } else {
-                            return complete(emptyStackShared, caller.compl.get());
+                            return complete(firstMemoizedStack, caller.compl.get());
                         }
                     case FUNCTION:
                         if (caller.dependencies == null) {
@@ -422,15 +428,15 @@ public class CallerImpl {
                 assertCallLimit(callLimit, callNumber);
                 caller = caller.call.apply(frame.args == null ? emptyArgs : new CastList(frame.args)); // last call with dependants
                 switch (caller.type) {
-                    case SHARED:
+                    case MEMOIZING:
 
                         if (runnerCAS(caller)) {
                             stack.getLast().continueWith(caller);
                         } else {// done or executing on other thread
                             T v = caller.compl.get();
-                            complete(stack.pollLast().sharedStack, v);
+                            complete(stack.pollLast().memoizingStack, v);
                             if (stack.isEmpty()) {
-                                return complete(emptyStackShared, v);
+                                return complete(firstMemoizedStack, v);
                             } else {
                                 stack.getLast().args.add(v);
                             }
@@ -441,9 +447,9 @@ public class CallerImpl {
                         break;
 
                     case RESULT:
-                        complete(stack.pollLast().sharedStack, caller.value);
+                        complete(stack.pollLast().memoizingStack, caller.value);
                         if (stack.isEmpty()) {
-                            return complete(emptyStackShared, caller.value);
+                            return complete(firstMemoizedStack, caller.value);
                         } else {
                             stack.getLast().args.add(caller.value);
                         }
@@ -459,11 +465,11 @@ public class CallerImpl {
                 frame.args.add(caller.value);
                 continue;
             }
-            if (caller.isSharedDone()) {
+            if (caller.isMemoizedDone()) {
                 frame.args.add(caller.compl.get());
                 continue;
             }
-            if (caller.type == CallerType.FUNCTION || caller.isSharedNotDone()) {
+            if (caller.type == CallerType.FUNCTION || caller.isMemoizedNotDone()) {
                 if (caller.dependencies == null) { // dependencies empty
                     // just call, assume we have expanded stack before
                     if (caller.type == CallerType.FUNCTION || runnerCAS(caller)) {
@@ -485,7 +491,7 @@ public class CallerImpl {
                         case FUNCTION:
                             stack.addLast(new StackFrame<>(get));
                             break;
-                        case SHARED:
+                        case MEMOIZING:
                             if (runnerCAS(get)) {
                                 stack.addLast(new StackFrame<>(get));
                             } else {//in another thread so just wait
@@ -511,8 +517,8 @@ public class CallerImpl {
                                 return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), stackLimit, callLimit, fork - 1, stackSize, callNumber, exe);
                             }).execute(exe).collect(array);
                             break;
-                        case SHARED:
-                            if (c.isSharedDone()) {
+                        case MEMOIZING:
+                            if (c.isMemoizedDone()) {
                                 array.add(new CompleablePromise<>(c.compl));
                             } else {
                                 new Promise(() -> { // actually use recursion, because localizing is hard, and has to be fast, so just limit branching size

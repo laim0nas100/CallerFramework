@@ -44,8 +44,8 @@ public class RecursionBuilder {
         }
 
         Caller<BigInteger> toResultCall = new CallerBuilder<BigInteger>(2)
-                .withDependencyCall(a -> fibb2Caller(seq - 1))
-                .withDependencyCall(a -> fibb2Caller(seq - 2))
+                .with(a -> fibb2Caller(seq - 1))
+                .with(a -> fibb2Caller(seq - 2))
                 .toResultCall(args -> args._0.add(args._1));
 
         return toResultCall;
@@ -90,7 +90,7 @@ public class RecursionBuilder {
         if (cmp.compare(m, BigInteger.ZERO) > 0 && cmp.compare(n, BigInteger.ZERO) > 0) {
 
             return new CallerBuilder<BigInteger>()
-                    .withDependencyCall(args -> ackermannCaller(m, n.subtract(BigInteger.ONE)))
+                    .with(args -> ackermannCaller(m, n.subtract(BigInteger.ONE)))
                     .toCall(args -> ackermannCaller(m.subtract(BigInteger.ONE), args._0));
         }
         throw new IllegalStateException();
@@ -108,7 +108,7 @@ public class RecursionBuilder {
         if (cmp.compare(m, 0L) > 0 && cmp.compare(n, 0L) > 0) {
 
             return new CallerBuilder<Long>()
-                    .withDependencyCall(args -> ackermannCaller(m, n - 1))
+                    .with(args -> ackermannCaller(m, n - 1))
                     .toCall(args -> ackermannCaller(m - 1, args._0));
         }
         throw new IllegalStateException();
@@ -196,7 +196,7 @@ public class RecursionBuilder {
                 Caller.ofResult(fc2),
                 Caller.ofResult(fc3)
         )
-                .toCallShared(a -> {
+                .toCallMemo(a -> {
                     return recursiveCounterCaller2(a._0, a._1, a._2, st + ".");
                 });
         Caller<Long> call_1 = new CallerBuilder<Long>()
@@ -205,7 +205,7 @@ public class RecursionBuilder {
                         call_2,
                         Caller.ofResult(fc3)
                 )
-                .toCallShared(a -> {
+                .toCallMemo(a -> {
                     return recursiveCounterCaller2(a._0, a._1, a._2, st + ".");
                 });
 
@@ -238,7 +238,7 @@ public class RecursionBuilder {
         list2.add(numb);
         final long n = numb - 1;
 
-        Caller<Long> toCall = Caller.ofCallableShared(() -> rec2Caller(n));
+        Caller<Long> toCall = Caller.ofCallableMemo(() -> rec2Caller(n));
 
         Caller<Long> toCall1 = new CallerBuilder<Long>().with(toCall).toCall(args -> rec2Caller(n - args.get(0)));
 
@@ -269,12 +269,12 @@ public class RecursionBuilder {
             if (number > 5000) {
                 return Caller.ofResult(number);
             } else {
-                Caller<Long> n1 = Caller.ofCallableShared(() -> recrazyCaller(number * 3, counter));
+                Caller<Long> n1 = Caller.ofCallableMemo(() -> recrazyCaller(number * 3, counter));
                 //once you compute a result, you can use it without recomputing
-                // without using shared Caller n1 would be recomputed each time it is used in a dependency
-                CallerBuilder<Long> builder = new CallerBuilder<Long>().with(n1);
-                Caller<Long> n2 = builder.toCallShared(a -> recrazyCaller(a._0 + 1, counter));
-                Caller<Long> n3 = builder.toCallShared(a -> recrazyCaller(a._0 + 2, counter));
+                // without using memoized Caller n1 would be recomputed each time it is used in a dependency
+                CallerBuilder<Long> builder = n1.toCallerBuilderAsDep();
+                Caller<Long> n2 = builder.toCallMemo(a -> recrazyCaller(a._0 + 1, counter));
+                Caller<Long> n3 = builder.toCallMemo(a -> recrazyCaller(a._0 + 2, counter));
                 return new CallerBuilder<Long>()
                         .with(n1, n2, n3)
                         .toCall(a -> recrazyCaller(a._0 + a._1 + a._2, counter));
@@ -307,7 +307,7 @@ public class RecursionBuilder {
         } else {
             BigInteger val = BigInteger.valueOf(n);
             return new CallerBuilder<BigInteger>()
-                    .withDependencyCallable(() -> factorialCaller(n - 1))
+                    .with(() -> factorialCaller(n - 1))
                     .toResultCall(args -> val.multiply(args.get(0)));
         }
     }
@@ -369,11 +369,11 @@ public class RecursionBuilder {
         }
 
 //        System.out.println(number + ":" + counter.incrementAndGet());
-        Caller<Long> n1 = Caller.ofCallableShared(() -> recSumCaller(number * 2));
-        Caller<Long> n2 = new CallerBuilder<Long>(1).with(n1).toCallShared(a -> recSumCaller(a._0 * 2));
-        Caller<Long> n3 = new CallerBuilder<Long>(2).with(n1, n2).toCallShared(a -> recSumCaller((a._0+a._1) * 2));
-        Caller<Long> n4 = new CallerBuilder<Long>(2).with(n1, n2, n3).toCallShared(a -> recSumCaller(a._0 + a._1 + a._2));
+        Caller<Long> n1 = Caller.ofCallableMemo(() -> recSumCaller(number * 2));
+        Caller<Long> n2 = new CallerBuilder<Long>(1).with(n1).toCallMemo(a -> recSumCaller(a._0 * 2));
+        Caller<Long> n3 = new CallerBuilder<Long>(2).with(n1, n2).toCallMemo(a -> recSumCaller((a._0+a._1) * 2));
+        Caller<Long> n4 = new CallerBuilder<Long>(2).with(n1, n2, n3).toCallMemo(a -> recSumCaller(a._0 + a._1 + a._2));
 
-        return new CallerBuilder<Long>().with(n4).toResultCallShared(a -> number + a._0);
+        return new CallerBuilder<Long>().with(n4).toResultCallMemo(a -> number + a._0);
     }
 }

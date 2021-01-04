@@ -1,12 +1,9 @@
 package lt.lb.caller;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import lt.lb.caller.util.CastList;
@@ -17,12 +14,22 @@ import lt.lb.fastid.FastIDGen;
 
 /**
  * Recursion avoiding function modeling. Main purpose: write a recursive
- * function. If likely to get stack overflown, use this framework to replace
- * every recursive call with Caller equivalent, without needing to design an
+ * function then, use this framework to replace every recursive call or flow
+ * directing keyword with {@link Caller} equivalent, without the need for an
  * iterative solution.
  *
- * Performance and memory penalties are self-evident. Is not likely to be faster
- * than well-made iterative solution.
+ * Supports function interruption (even in single-threaded mode), function
+ * termination when call limit is reacher, same with stack limit. Furthermore,
+ * offers built-in threading, when a {@link Caller} has more than 1 dependencies
+ * to be resolved before final function call. Has built-in
+ * {@code for},{@code while} {@code do,while} loop support.
+ *
+ * Very small footprint (memory and performance) when using only tail-call type
+ * of functions.
+ *
+ * Otherwise, when simulating a call-stack, the performance and memory penalties
+ * are self-evident. Is not likely to be faster than well-made iterative
+ * solution.
  *
  * @author laim0nas100
  * @param <T> Most general type of return result (and arguments) that this
@@ -47,7 +54,8 @@ public class Caller<T> {
     private static final Caller<?> emptyResultCaller = new Caller<>(CallerType.RESULT, null, null, null);
 
     public static enum CallerType {
-        RESULT, FUNCTION, SHARED
+
+        RESULT, FUNCTION, MEMOIZING
     }
 
     public final CallerType type;
@@ -57,18 +65,18 @@ public class Caller<T> {
     protected final List<Caller<T>> dependencies;
 
     /**
-     * Shared things. This actually stores a value and a caller object, but the
-     * value is stored as a result of a future.
+     * Memoized things. This actually stores a value and a caller object, but
+     * the value is stored as a result of a future.
      */
     protected final CompletableFuture<T> compl;
     protected final AtomicBoolean started;
 
-    public boolean isSharedDone() {
-        return type == CallerType.SHARED && compl.isDone();
+    public boolean isMemoizedDone() {
+        return type == CallerType.MEMOIZING && compl.isDone();
     }
 
-    public boolean isSharedNotDone() {
-        return type == CallerType.SHARED && !compl.isDone();
+    public boolean isMemoizedNotDone() {
+        return type == CallerType.MEMOIZING && !compl.isDone();
     }
 
     public static <T> CallerBuilder<T> builder() {
@@ -104,6 +112,9 @@ public class Caller<T> {
      * @return
      */
     public static <T> CallerFlowControl<T> flowReturn(Caller<T> next) {
+        if (next == emptyResultCaller) {
+            return CallerFlowControl.FLOW_RETURN_NULL;
+        }
         return new CallerFlowControl<>(next, CallerFlowControl.CallerForType.RETURN);
     }
 
@@ -116,6 +127,9 @@ public class Caller<T> {
      * @return
      */
     public static <T> CallerFlowControl<T> flowReturn(T result) {
+        if (result == null) {
+            return CallerFlowControl.FLOW_RETURN_NULL;
+        }
         return flowReturn(Caller.ofResult(result));
     }
 
@@ -127,7 +141,7 @@ public class Caller<T> {
      * @return
      */
     public static <T> CallerFlowControl<T> flowBreak() {
-        return new CallerFlowControl<>(null, CallerFlowControl.CallerForType.BREAK);
+        return CallerFlowControl.FLOW_BREAK;
     }
 
     /**
@@ -137,7 +151,7 @@ public class Caller<T> {
      * @return
      */
     public static <T> CallerFlowControl<T> flowContinue() {
-        return new CallerFlowControl<>(null, CallerFlowControl.CallerForType.CONTINUE);
+        return CallerFlowControl.FLOW_CONTINUE;
     }
 
     /**
@@ -175,16 +189,17 @@ public class Caller<T> {
     }
 
     /**
-     * Caller modeling a recursive call with result computed and saved
-     * afterwards.
+     * Caller modeling a recursive call.
+     *
+     * Memoized (runs only once and stores result).
      *
      * @param <T>
      * @param call
      * @return Caller, with recursive call
      */
-    public static <T> Caller<T> ofFunctionShared(CheckedFunction<CastList<T>, Caller<T>> call) {
+    public static <T> Caller<T> ofFunctionMemo(CheckedFunction<CastList<T>, Caller<T>> call) {
         Objects.requireNonNull(call);
-        return new Caller<>(CallerType.SHARED, null, call, null);
+        return new Caller<>(CallerType.MEMOIZING, null, call, null);
     }
 
     /**
@@ -198,22 +213,23 @@ public class Caller<T> {
         Objects.requireNonNull(run);
         return ofFunction(args -> {
             run.run();
-            return null;
+            return Caller.ofNull();
         });
     }
 
     /**
-     * Caller modeling a recursive call with no result or arguments.
+     * Caller modeling a recursive call with no result or arguments. Returns
+     * {@code null} as a result. Memoized (runs only once and stores result).
      *
      * @param <T>
      * @param run
      * @return Caller, with recursive call
      */
-    public static <T> Caller<T> ofRunnableShared(CheckedRunnable run) {
+    public static <T> Caller<T> ofRunnableMemo(CheckedRunnable run) {
         Objects.requireNonNull(run);
-        return ofFunctionShared(args -> {
+        return ofFunctionMemo(args -> {
             run.run();
-            return null;
+            return Caller.ofNull();
         });
     }
 
@@ -231,15 +247,15 @@ public class Caller<T> {
 
     /**
      * Caller modeling a recursive call wrapping in callable with result
-     * computed. Saves the result once called.
+     * computed. Memoized (runs only once and stores result).
      *
      * @param <T>
      * @param call
      * @return Caller, with recursive tail call
      */
-    public static <T> Caller<T> ofCallableShared(Callable<Caller<T>> call) {
+    public static <T> Caller<T> ofCallableMemo(Callable<Caller<T>> call) {
         Objects.requireNonNull(call);
-        return ofFunctionShared(args -> call.call());
+        return ofFunctionMemo(args -> call.call());
     }
 
     /**
@@ -255,20 +271,20 @@ public class Caller<T> {
     }
 
     /**
-     * Caller that has a result (terminating) wrapping in Callable. Saves the
-     * result once called.
+     * Caller that has a result (terminating) wrapping in {@link Callable}.
+     * Memoized (runs only once and stores result).
      *
      * @param <T>
      * @param call
      * @return Caller that ends up as a result
      */
-    public static <T> Caller<T> ofCallableResultShared(Callable<T> call) {
+    public static <T> Caller<T> ofCallableResultMemo(Callable<T> call) {
         Objects.requireNonNull(call);
-        return ofFunctionShared(args -> ofResult(call.call()));
+        return ofFunctionMemo(args -> ofResult(call.call()));
     }
 
     /**
-     * Caller that has a result (terminating) after calling a function once.
+     * Caller that has a result (terminating) after calling a function.
      *
      * @param <T>
      * @param call
@@ -280,16 +296,16 @@ public class Caller<T> {
     }
 
     /**
-     * Caller that has a result (terminating) after calling a function once.
-     * Saves the result once called.
+     * Caller that has a result (terminating) after calling a function. Memoized
+     * (runs only once and stores result).
      *
      * @param <T>
      * @param call
      * @return Caller that ends up as a result
      */
-    public static <T> Caller<T> ofResultCallShared(CheckedFunction<CastList<T>, T> call) {
+    public static <T> Caller<T> ofResultCallMemo(CheckedFunction<CastList<T>, T> call) {
         Objects.requireNonNull(call);
-        return ofFunctionShared(args -> ofResult(call.apply(args)));
+        return ofFunctionMemo(args -> ofResult(call.apply(args)));
     }
 
     /**
@@ -305,7 +321,7 @@ public class Caller<T> {
         this.value = result;
         this.call = nextCall;
         this.dependencies = dependencies;
-        if (type == CallerType.SHARED) {
+        if (type == CallerType.MEMOIZING) {
             this.compl = new CompletableFuture<>();
             this.started = new AtomicBoolean(false);
         } else {
@@ -316,7 +332,7 @@ public class Caller<T> {
     }
 
     /**
-     * Construct Caller loop end with {@code return} from this caller
+     * Construct {@link Caller} loop end with {@code return} from this caller.
      *
      * @return
      */
@@ -325,7 +341,7 @@ public class Caller<T> {
     }
 
     /**
-     * Construct CallerBuilder with this caller as first dependency
+     * Construct {@link CallerBuilder} with this caller as first dependency
      *
      * @return
      */

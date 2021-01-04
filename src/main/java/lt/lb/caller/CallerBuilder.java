@@ -50,31 +50,31 @@ public class CallerBuilder<T> {
         return this;
     }
 
-    public CallerBuilder<T> withDependencyCall(CheckedFunction<CastList<T>, Caller<T>> call) {
+    public CallerBuilder<T> with(CheckedFunction<CastList<T>, Caller<T>> call) {
         Objects.requireNonNull(call);
         return with(Caller.ofFunction(call));
     }
 
-    public CallerBuilder<T> withDependencyResult(CheckedFunction<CastList<T>, T> call) {
+    public CallerBuilder<T> withRes(CheckedFunction<CastList<T>, T> call) {
         Objects.requireNonNull(call);
         return with(Caller.ofResultCall(call));
     }
 
-    public CallerBuilder<T> withDependencyCallable(Callable<Caller<T>> call) {
+    public CallerBuilder<T> with(Callable<Caller<T>> call) {
         Objects.requireNonNull(call);
         return with(Caller.ofCallable(call));
     }
 
-    public CallerBuilder<T> withDependencyCallableResult(Callable<T> call) {
+    public CallerBuilder<T> withRes(Callable<T> call) {
         Objects.requireNonNull(call);
         return with(Caller.ofCallableResult(call));
     }
 
-    public CallerBuilder<T> withDependencyResult(T res) {
+    public CallerBuilder<T> withRes(T res) {
         return with(Caller.ofResult(res));
     }
 
-    public CallerBuilder<T> withDependencyRunnable(CheckedRunnable run) {
+    public CallerBuilder<T> with(CheckedRunnable run) {
         Objects.requireNonNull(run);
         return with(Caller.ofRunnable(run));
     }
@@ -84,9 +84,9 @@ public class CallerBuilder<T> {
         return toCall(args -> Caller.ofResult(call.apply(args)));
     }
 
-    public Caller<T> toResultCallShared(CheckedFunction<CastList<T>, T> call) {
+    public Caller<T> toResultCallMemo(CheckedFunction<CastList<T>, T> call) {
         Objects.requireNonNull(call);
-        return toCallShared(args -> Caller.ofResult(call.apply(args)));
+        return toCallMemo(args -> Caller.ofResult(call.apply(args)));
     }
 
     public Caller<T> toResultCall(Callable<T> call) {
@@ -94,9 +94,9 @@ public class CallerBuilder<T> {
         return toCall(args -> Caller.ofResult(call.call()));
     }
 
-    public Caller<T> toResultCallShared(Callable<T> call) {
+    public Caller<T> toResultCallMemo(Callable<T> call) {
         Objects.requireNonNull(call);
-        return toCallShared(args -> Caller.ofResult(call.call()));
+        return toCallMemo(args -> Caller.ofResult(call.call()));
     }
 
     public Caller<T> toCall(CheckedFunction<CastList<T>, Caller<T>> call) {
@@ -104,9 +104,9 @@ public class CallerBuilder<T> {
         return new Caller<>(Caller.CallerType.FUNCTION, null, call, this.dependants);
     }
 
-    public Caller<T> toCallShared(CheckedFunction<CastList<T>, Caller<T>> call) {
+    public Caller<T> toCallMemo(CheckedFunction<CastList<T>, Caller<T>> call) {
         Objects.requireNonNull(call);
-        return new Caller<>(Caller.CallerType.SHARED, null, call, this.dependants);
+        return new Caller<>(Caller.CallerType.MEMOIZING, null, call, this.dependants);
     }
 
     public Caller<T> toCall(Callable<Caller<T>> call) {
@@ -114,15 +114,18 @@ public class CallerBuilder<T> {
         return toCall(args -> Caller.ofCallable(call));
     }
 
-    public Caller<T> toCallShared(Callable<Caller<T>> call) {
+    public Caller<T> toCallMemo(Callable<Caller<T>> call) {
         Objects.requireNonNull(call);
-        return toCallShared(args -> Caller.ofCallable(call));
+        return toCallMemo(args -> Caller.ofCallable(call));
     }
 
-    public Caller<T> toResultRunnable(CheckedRunnable run) {
-        return toCall(args -> {
-            run.run();
-            return Caller.ofNull();
-        });
+    public Caller<T> toRunnable(CheckedRunnable run) {
+        Objects.requireNonNull(run);
+        return toCall(args -> Caller.ofRunnable(run));
+    }
+
+    public Caller<T> toRunnableMemo(CheckedRunnable run) {
+        Objects.requireNonNull(run);
+        return toCallMemo(args -> Caller.ofRunnable(run));
     }
 }

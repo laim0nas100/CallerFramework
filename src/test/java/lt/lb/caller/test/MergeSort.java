@@ -66,9 +66,9 @@ public class MergeSort {
             int m = (l + r) / 2;
 
             return new CallerBuilder()
-                    .withDependencyCallable(() -> sortCaller(arr, l, m))
-                    .withDependencyCallable(() -> sortCaller(arr, m + 1, r))
-                    .toResultRunnable(() -> {
+                    .with(() -> sortCaller(arr, l, m))
+                    .with(() -> sortCaller(arr, m + 1, r))
+                    .toRunnable(() -> {
                         merge(arr, l, m, r);
                     });
         }
