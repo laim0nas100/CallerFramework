@@ -10,7 +10,6 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableFuture;
@@ -26,7 +25,6 @@ import lt.lb.caller.util.CheckedException;
 import lt.lb.caller.util.CheckedFunction;
 import lt.lb.caller.util.IndexedIterator;
 import lt.lb.caller.util.IndexedIterator.IndexedValue;
-import lt.lb.caller.util.TailRecursionInterator;
 import lt.lb.caller.util.sync.CompleablePromise;
 import lt.lb.caller.util.sync.Promise;
 import lt.lb.caller.util.sync.ValuePromise;
@@ -39,14 +37,9 @@ public class CallerImpl {
 
     static class ThreadStack {
 
-        TailRecursionInterator<ThreadStack> parentIterator() {
-            return new TailRecursionInterator<>(parent, p -> p.parent);
-        }
-
         ThreadStack parent;
         Thread thread;
         AtomicBoolean interrupted = new AtomicBoolean(false);
-        AtomicBoolean proliferated = new AtomicBoolean(false);
 
         public ThreadStack() {
             thread = Thread.currentThread();
@@ -79,39 +72,26 @@ public class CallerImpl {
             this.thread = Thread.currentThread();
         }
 
-        protected void proliferatedInterrupt() {
-            if (proliferated.compareAndSet(false, true)) {
-                if (interrupted.compareAndSet(false, true)) {
-                    thread.interrupt();
+        protected void interruptedAndProliferateUp() {
+            if (interrupted.compareAndSet(false, true)) {
+                if (parent != null && parent.interrupted.compareAndSet(false, true)) {
+                    parent.thread.interrupt();
                 }
             }
-        }
 
-        protected void proliferateUp() {
-            if (proliferated.compareAndSet(false, true)) {
-                for (ThreadStack stack : parentIterator()) {
-                    stack.proliferatedInterrupt();
-                }
-            }
         }
 
         public boolean wasInterrupted() {
-            if (interrupted.get() && proliferated.get()) {
+            if (interrupted.get()) {
                 return true;
             }
-            if (Thread.interrupted()) {
-                if (interrupted.compareAndSet(false, true)) {
-                    proliferateUp();
-                }// someone else allread proliferating
+            if (this.thread.isInterrupted()) {
+                interruptedAndProliferateUp();
                 return true;
             } else { // not interrupted, but maybe parent was?
-                for (ThreadStack stack : parentIterator()) {
-                    if (stack.interrupted.get()) {//found interrupted parent
-                        if (interrupted.compareAndSet(false, true)) {
-                            proliferateUp();
-                        }
-                        return true;
-                    }
+                if (parent != null && parent.interrupted.get()) {//found interrupted parent
+                    interruptedAndProliferateUp();
+                    return true;
                 }
             }
 
