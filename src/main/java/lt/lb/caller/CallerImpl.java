@@ -25,7 +25,7 @@ import lt.lb.caller.util.CheckedException;
 import lt.lb.caller.util.CheckedFunction;
 import lt.lb.caller.util.IndexedIterator;
 import lt.lb.caller.util.IndexedIterator.IndexedValue;
-import lt.lb.caller.util.sync.CompleablePromise;
+import lt.lb.caller.util.sync.CompletablePromise;
 import lt.lb.caller.util.sync.Promise;
 import lt.lb.caller.util.sync.ValuePromise;
 
@@ -499,7 +499,7 @@ public class CallerImpl {
                             break;
                         case MEMOIZING:
                             if (c.isMemoizedDone()) {
-                                array.add(new CompleablePromise<>(c.compl));
+                                array.add(new CompletablePromise<>(c.compl));
                             } else {
                                 new Promise(() -> { // actually use recursion, because localizing is hard, and has to be fast, so just limit branching size
                                     return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), stackLimit, callLimit, fork - 1, stackSize, callNumber, exe);

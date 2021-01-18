@@ -10,11 +10,11 @@ import java.util.concurrent.TimeoutException;
  *
  * @author laim0nas100
  */
-public class CompleablePromise<T> implements RunnableFuture<T> {
+public class CompletablePromise<T> implements RunnableFuture<T> {
 
     public final CompletableFuture<T> future;
 
-    public CompleablePromise(CompletableFuture<T> future) {
+    public CompletablePromise(CompletableFuture<T> future) {
         this.future = future;
     }
 
