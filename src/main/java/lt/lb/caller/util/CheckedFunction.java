@@ -17,13 +17,13 @@ public interface CheckedFunction<P, R> extends Function<P, R> {
      * @return the function result
      * @throws Exception
      */
-    public R applyUnsafe(P t) throws Exception;
+    public R applyUncheked(P t) throws Throwable;
 
     @Override
     public default R apply(P t) throws CheckedException {
         try {
-            return applyUnsafe(t);
-        } catch (Exception e) {
+            return applyUncheked(t);
+        } catch (Throwable e) {
             throw new CheckedException(e);
         }
     }

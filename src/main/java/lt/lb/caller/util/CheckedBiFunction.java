@@ -20,12 +20,12 @@ public interface CheckedBiFunction<O, P, R> extends BiFunction<O, P, R> {
     @Override
     public default R apply(O t, P u) throws CheckedException {
         try {
-            return applyUnsafe(t, u);
-        } catch (Exception e) {
+            return applyUnchecked(t, u);
+        } catch (Throwable e) {
             throw new CheckedException(e);
         }
     }
 
-    public R applyUnsafe(O t, P u) throws Exception;
+    public R applyUnchecked(O t, P u) throws Throwable;
 
 }

@@ -14,8 +14,8 @@ public interface CheckedRunnable extends Runnable {
     @Override
     public default void run() throws CheckedException {
         try {
-            runUnsafe();
-        } catch (Exception e) {
+            runUnchecked();
+        } catch (Throwable e) {
             throw new CheckedException(e);
         }
     }
@@ -25,6 +25,6 @@ public interface CheckedRunnable extends Runnable {
      *
      * @throws Exception
      */
-    public void runUnsafe() throws Exception;
+    public void runUnchecked() throws Throwable;
 
 }
