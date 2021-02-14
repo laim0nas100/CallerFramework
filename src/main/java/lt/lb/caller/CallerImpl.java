@@ -37,11 +37,12 @@ public class CallerImpl {
 
     static class ThreadStack {
 
-        ThreadStack parent;
-        Thread thread;
-        AtomicBoolean interrupted = new AtomicBoolean(false);
+        final ThreadStack parent;
+        final Thread thread;
+        final AtomicBoolean interrupted = new AtomicBoolean(false);
 
         public ThreadStack() {
+            parent = null;
             thread = Thread.currentThread();
         }
 
@@ -63,7 +64,6 @@ public class CallerImpl {
                 } else {
                     return new ThreadStack(parent.parent);
                 }
-
             }
         }
 
@@ -85,14 +85,14 @@ public class CallerImpl {
             if (interrupted.get()) {
                 return true;
             }
-            if (this.thread.isInterrupted()) {
+            if (thread.isInterrupted()) {
                 interruptedAndProliferateUp();
                 return true;
-            } else { // not interrupted, but maybe parent was?
-                if (parent != null && parent.interrupted.get()) {//found interrupted parent
-                    interruptedAndProliferateUp();
-                    return true;
-                }
+            }
+            // not interrupted, but maybe parent was?
+            if (parent != null && parent.interrupted.get()) {//found interrupted parent
+                interruptedAndProliferateUp();
+                return true;
             }
 
             return interrupted.get();
@@ -133,15 +133,6 @@ public class CallerImpl {
 
     }
 
-    private static void assertCallLimit(long callLimit, AtomicLong current) {
-        if (callLimit > 0) {
-            long lim = current.getAndIncrement();
-            if (lim >= callLimit) {
-                throw new CallerException("Call limit reached " + lim);
-            }
-        }
-    }
-
     /**
      * Resolve Caller with optional limits
      *
@@ -160,7 +151,7 @@ public class CallerImpl {
     public static <T> T resolveThreaded(Caller<T> caller, boolean interruptible, int stackLimit, long callLimit, int forkCount, Executor exe) throws CheckedException {
         try {
             ThreadStack threadStack = interruptible ? new ThreadStack() : null;
-            return resolveThreadedInner(caller, threadStack, stackLimit, callLimit, forkCount, 0, new AtomicLong(0), exe);
+            return resolveThreadedInner(caller, threadStack, new CallerLimits(stackLimit, callLimit, forkCount, 0), new AtomicLong(0), exe);
         } catch (TimeoutException | InterruptedException | CancellationException | CompletionException | ExecutionException ex) {
             throw new CheckedException(ex);
         }
@@ -185,7 +176,7 @@ public class CallerImpl {
     public static <T> FutureTask<T> resolveFuture(Caller<T> caller, boolean interruptible, int stackLimit, long callLimit, int forkCount, Executor exe) {
         return new FutureTask<>(() -> {
             ThreadStack threadStack = interruptible ? new ThreadStack() : null;
-            return resolveThreadedInner(caller, threadStack, stackLimit, callLimit, forkCount, 0, new AtomicLong(0), exe);
+            return resolveThreadedInner(caller, threadStack, new CallerLimits(stackLimit, callLimit, forkCount, 0), new AtomicLong(0), exe);
         });
     }
 
@@ -357,7 +348,41 @@ public class CallerImpl {
 
     private static final CastList emptyArgs = new CastList<>(null);
 
-    private static <T> T resolveThreadedInner(Caller<T> caller, ThreadStack threadStack, final long stackLimit, final long callLimit, final int fork, final int prevStackSize, AtomicLong callNumber, Executor exe) throws InterruptedException, CancellationException, TimeoutException, ExecutionException {
+    static class CallerLimits {
+
+        public final int stackLimit;
+        public final long callLimit;
+        public final int fork;
+        public final int prevStackSize;
+
+        public CallerLimits(int stackLimit, long callLimit, int fork, int prevStackSize) {
+            this.stackLimit = stackLimit;
+            this.callLimit = callLimit;
+            this.fork = fork;
+            this.prevStackSize = prevStackSize;
+        }
+
+        public CallerLimits newFork(Collection stack) {
+            return new CallerLimits(stackLimit, callLimit, fork - 1, prevStackSize + stack.size());
+        }
+
+        public void assertCallLimit(AtomicLong current) {
+            if (callLimit > 0) {
+                long lim = current.getAndIncrement();
+                if (lim >= callLimit) {
+                    throw new CallerException("Call limit reached " + lim);
+                }
+            }
+        }
+
+        public void assertStackLimit(Collection stack) {
+            if (stackLimit > 0 && (prevStackSize + stackLimit) <= stack.size()) {
+                throw new CallerException("Stack limit overrun " + stack.size() + prevStackSize);
+            }
+        }
+    }
+
+    private static <T> T resolveThreadedInner(Caller<T> caller, ThreadStack threadStack, final CallerLimits limits, AtomicLong callNumber, Executor exe) throws InterruptedException, CancellationException, TimeoutException, ExecutionException {
 
         Deque<StackFrame<T>> stack = new ArrayDeque<>();
 
@@ -374,7 +399,7 @@ public class CallerImpl {
                     case MEMOIZING:
                         if (runnerCAS(caller)) {
                             if (caller.dependencies == null) {
-                                assertCallLimit(callLimit, callNumber);
+                                limits.assertCallLimit(callNumber);
                                 firstMemoizedStack.add(caller);
                                 caller = caller.call.apply(emptyArgs);
                             } else {
@@ -386,7 +411,7 @@ public class CallerImpl {
                         }
                     case FUNCTION:
                         if (caller.dependencies == null) {
-                            assertCallLimit(callLimit, callNumber);
+                            limits.assertCallLimit(callNumber);
                             caller = caller.call.apply(emptyArgs);
                         } else {
                             stack.addLast(new StackFrame(caller));
@@ -399,13 +424,11 @@ public class CallerImpl {
                 continue;
             }
             // in stack
-            if (stackLimit > 0 && (prevStackSize + stackLimit) <= stack.size()) {
-                throw new CallerException("Stack limit overrun " + stack.size() + prevStackSize);
-            }
+            limits.assertStackLimit(stack);
             StackFrame<T> frame = stack.getLast();
             caller = frame.call;
             if (frame.readyArgs(caller)) { //demolish stack, because got all dependecies
-                assertCallLimit(callLimit, callNumber);
+                limits.assertCallLimit(callNumber);
                 caller = caller.call.apply(frame.args == null ? emptyArgs : new CastList(frame.args)); // last call with dependants
                 switch (caller.type) {
                     case MEMOIZING:
@@ -453,7 +476,7 @@ public class CallerImpl {
                 if (caller.dependencies == null) { // dependencies empty
                     // just call, assume we have expanded stack before
                     if (caller.type == CallerType.FUNCTION || runnerCAS(caller)) {
-                        assertCallLimit(callLimit, callNumber);
+                        limits.assertCallLimit(callNumber);
                         frame.continueWith(caller.call.apply(emptyArgs)); // replace current frame, because of simple tail recursion
                     } else {//in another thread
                         frame.args.add(caller.compl.get());
@@ -461,7 +484,7 @@ public class CallerImpl {
                     continue;
                 }
                 // dep not empty and no threading
-                if (fork <= 0 || caller.dependencies.size() <= 1) {
+                if (limits.fork <= 0 || caller.dependencies.size() <= 1) {
                     Caller<T> get = caller.dependencies.get(frame.index);
                     frame.index++;
                     switch (get.type) {
@@ -486,7 +509,7 @@ public class CallerImpl {
 
                 // use threading with dependencies 
                 ArrayList<RunnableFuture<T>> array = new ArrayList<>(caller.dependencies.size());
-                int stackSize = stack.size() + prevStackSize;
+                CallerLimits newFork = limits.newFork(stack);
                 for (Caller<T> c : caller.dependencies) {
                     switch (c.type) {
                         case RESULT:
@@ -494,7 +517,7 @@ public class CallerImpl {
                             break;
                         case FUNCTION:
                             new Promise<>(() -> { // actually use recursion, because localizing is hard, and has to be fast, so just limit branching size
-                                return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), stackLimit, callLimit, fork - 1, stackSize, callNumber, exe);
+                                return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), newFork, callNumber, exe);
                             }).execute(exe).collect(array);
                             break;
                         case MEMOIZING:
@@ -502,7 +525,7 @@ public class CallerImpl {
                                 array.add(new CompletablePromise<>(c.compl));
                             } else {
                                 new Promise(() -> { // actually use recursion, because localizing is hard, and has to be fast, so just limit branching size
-                                    return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), stackLimit, callLimit, fork - 1, stackSize, callNumber, exe);
+                                    return resolveThreadedInner(c, ThreadStack.createOrReuse(threadStack), newFork, callNumber, exe);
                                 }).execute(exe).collect(array);
                             }
                             break;
