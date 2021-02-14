@@ -51,7 +51,5 @@ public class IndexedIterator<T> implements Iterator<T> {
             this.index = index;
             this.value = value;
         }
-
     }
-
 }
