@@ -9,8 +9,6 @@ import java.util.function.Function;
 import lt.lb.caller.util.CastList;
 import lt.lb.caller.util.CheckedFunction;
 import lt.lb.caller.util.CheckedRunnable;
-import lt.lb.fastid.FastID;
-import lt.lb.fastid.FastIDGen;
 
 /**
  * Recursion avoiding function modeling. Main purpose: write a recursive
@@ -50,16 +48,13 @@ public class Caller<T> {
      */
     public static final int DEFAULT_FORK_COUNT = 10;
 
-    private static final FastIDGen idgen = new FastIDGen();
     private static final Caller<?> emptyResultCaller = new Caller<>(CallerType.RESULT, null, null, null);
 
     public static enum CallerType {
-
         RESULT, FUNCTION, MEMOIZING
     }
 
     public final CallerType type;
-    public final FastID id;
     protected final T value;
     protected final Function<CastList<T>, Caller<T>> call;
     protected final List<Caller<T>> dependencies;
@@ -70,14 +65,6 @@ public class Caller<T> {
      */
     protected final CompletableFuture<T> compl;
     protected final AtomicBoolean started;
-
-    public boolean isMemoizedDone() {
-        return type == CallerType.MEMOIZING && compl.isDone();
-    }
-
-    public boolean isMemoizedNotDone() {
-        return type == CallerType.MEMOIZING && !compl.isDone();
-    }
 
     public static <T> CallerBuilder<T> builder() {
         return new CallerBuilder<>();
@@ -328,7 +315,6 @@ public class Caller<T> {
             this.compl = null;
             this.started = null;
         }
-        this.id = idgen.getAndIncrement();
     }
 
     /**

@@ -37,8 +37,7 @@ public class IndexedIterator<T> implements Iterator<T> {
     }
 
     public IndexedValue<T> nextIndexed() {
-        T next = iter.next();
-        index++;
+        T next = next();
         return new IndexedValue<>(index, next);
     }
 

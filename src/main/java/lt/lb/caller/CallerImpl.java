@@ -144,7 +144,7 @@ public class CallerImpl {
      * @param callLimit limit of how many calls can be made (useful for endless
      * recursion detection). Use non-positive to disable limit.
      * @param forkCount how many fork levels to allow (uses recursion) amount of
-     * forks is determined by {@code Caller} dependencies
+     * forks is determined by {@link Caller} dependencies
      * @param exe executor
      * @return
      */
@@ -169,7 +169,7 @@ public class CallerImpl {
      * @param callLimit limit of how many calls can be made (useful for endless
      * recursion detection). Use non-positive to disable limit.
      * @param forkCount how many fork levels to allow (uses recursion) amount of
-     * forks is determined by {@code Caller} dependencies
+     * forks is determined by {@link Caller} dependencies
      * @param exe executor
      * @return
      */
@@ -342,8 +342,16 @@ public class CallerImpl {
         return value;
     }
 
+    private static boolean isMemoizedDone(Caller c) {
+        return c.type == CallerType.MEMOIZING && c.compl.isDone();
+    }
+
+    private static boolean isMemoizedNotDone(Caller c) {
+        return c.type == CallerType.MEMOIZING && !c.compl.isDone();
+    }
+
     private static <T> boolean runnerCAS(Caller<T> caller) {
-        return caller.isMemoizedNotDone() && caller.started.compareAndSet(false, true);
+        return isMemoizedNotDone(caller) && caller.started.compareAndSet(false, true);
     }
 
     private static final CastList emptyArgs = new CastList<>(null);
@@ -468,11 +476,11 @@ public class CallerImpl {
                 frame.args.add(caller.value);
                 continue;
             }
-            if (caller.isMemoizedDone()) {
+            if (isMemoizedDone(caller)) {
                 frame.args.add(caller.compl.get());
                 continue;
             }
-            if (caller.type == CallerType.FUNCTION || caller.isMemoizedNotDone()) {
+            if (caller.type == CallerType.FUNCTION || isMemoizedNotDone(caller)) {
                 if (caller.dependencies == null) { // dependencies empty
                     // just call, assume we have expanded stack before
                     if (caller.type == CallerType.FUNCTION || runnerCAS(caller)) {
@@ -521,7 +529,7 @@ public class CallerImpl {
                             }).execute(exe).collect(array);
                             break;
                         case MEMOIZING:
-                            if (c.isMemoizedDone()) {
+                            if (isMemoizedDone(c)) {
                                 array.add(new CompletablePromise<>(c.compl));
                             } else {
                                 new Promise(() -> { // actually use recursion, because localizing is hard, and has to be fast, so just limit branching size

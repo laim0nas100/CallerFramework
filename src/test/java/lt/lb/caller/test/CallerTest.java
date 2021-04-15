@@ -25,8 +25,8 @@ import static lt.lb.caller.test.TreeBuilder.PostOrderCaller;
 import lt.lb.caller.test.TreeBuilder.TNode;
 import static lt.lb.caller.test.TreeBuilder.treeCollector;
 import static lt.lb.caller.test.TreeBuilder.treeVisitor;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 /**
  *
@@ -168,11 +168,6 @@ public class CallerTest {
 
     }
 
-    public static void main(String... args) throws Exception {
-        CallerTest callerTest = new CallerTest();
-        callerTest.mergeSortTest();
-    }
-
     @Test
     public void crazierRecursionTestInterrupted() throws Exception {
 
@@ -192,7 +187,7 @@ public class CallerTest {
 
         future.run();
         service.shutdown();
-        Assert.assertThrows(ExecutionException.class, () -> {
+        Assertions.assertThrows(ExecutionException.class, () -> {
             future.get();
         });
 
@@ -219,7 +214,7 @@ public class CallerTest {
         future.run();
         service.shutdown();
 
-        Assert.assertThrows(CancellationException.class, () -> {
+        Assertions.assertThrows(CancellationException.class, () -> {
             future.get();
         });
 

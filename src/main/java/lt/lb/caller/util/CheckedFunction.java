@@ -3,7 +3,7 @@ package lt.lb.caller.util;
 import java.util.function.Function;
 
 /**
- * Function with exception masking as a CheckedException
+ * Function with exception masking as a {@link CheckedException}
  *
  * @author laim0nas100
  */
